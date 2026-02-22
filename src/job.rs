@@ -80,9 +80,19 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
                   cli_queue: Option<String>, cli_walltime: Option<u64>,
                   cli_depend: Option<String>, cli_start_after: Option<u64>) {
     let replace = |s: &str| if let Some(v) = val { s.replace("{}", v) } else { s.to_string() };
-    let cmd = replace(cmd_tmpl);
-    let job_args: Vec<_> = args_tmpl.iter().map(|s| replace(s)).collect();
     
+    let raw_cmd = replace(cmd_tmpl);
+    let mut cmd = raw_cmd.clone();
+    
+    // Path auto-completion: only prefix with ./ if it exists in cwd and has no separators
+    if !cmd.contains('/') && !cmd.contains('\\') {
+        let p = cwd.join(&cmd);
+        if p.is_file() {
+            cmd = format!("./{}", cmd);
+        }
+    }
+
+    let job_args: Vec<_> = args_tmpl.iter().map(|s| replace(s)).collect();
     let config = utils::get_config();
     let def_q = config.default_queue;
     let mut script_cost = 1;
@@ -115,7 +125,6 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
                                 if arg.starts_with("h_rt=") {
                                     script_walltime = Some(utils::parse_duration(&arg[5..]));
                                 } else if arg.starts_with("nodes=") {
-                                    // Handle PBS nodes=1:ppn=4
                                     if let Some(pos) = arg.find("ppn=") {
                                         script_cost = arg[pos+4..].parse().unwrap_or(script_cost);
                                     }
@@ -134,7 +143,7 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     }
 
     let final_cost = cli_cost.unwrap_or(script_cost);
-    let final_name = cli_name.unwrap_or(if script_name.is_empty() { cmd.clone() } else { script_name });
+    let final_name = cli_name.unwrap_or(if script_name.is_empty() { raw_cmd.clone() } else { script_name });
     let final_out = cli_out.or(script_out);
     let final_err = cli_err.or(script_err);
     let final_queue = cli_queue.or(script_queue).unwrap_or(def_q);
