@@ -2,6 +2,31 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+pub fn get_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+}
+
+pub fn parse_duration(s: &str) -> u64 {
+    let parts: Vec<&str> = s.split(':').collect();
+    match parts.len() {
+        3 => { // HH:MM:SS
+            let h = parts[0].parse::<u64>().unwrap_or(0);
+            let m = parts[1].parse::<u64>().unwrap_or(0);
+            let s = parts[2].parse::<u64>().unwrap_or(0);
+            h * 3600 + m * 60 + s
+        }
+        2 => { // MM:SS
+            let m = parts[0].parse::<u64>().unwrap_or(0);
+            let s = parts[1].parse::<u64>().unwrap_or(0);
+            m * 60 + s
+        }
+        1 => { // SS
+            parts[0].parse::<u64>().unwrap_or(0)
+        }
+        _ => 0,
+    }
+}
+
 pub fn get_fbq_dir() -> PathBuf {
     let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"))
         .expect("Could not find HOME or USERPROFILE environment variable");

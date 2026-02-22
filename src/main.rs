@@ -41,12 +41,20 @@ fn main() {
 fn print_help() {
     println!("FBQueue (Forblaze Queue) - Simple local job scheduler");
     println!("Usage:");
-    println!("  fbqueue sub [-q QUEUE] [-c COST] [-N NAME] [-o OUT] [-e ERR] [--range N-M] [--list A,B,C] <command> [args...] (alias: qsub)");
-    println!("  fbqueue stat                                                            (alias: qstat)");
-    println!("  fbqueue del <job_id>                                                    (alias: qdel)");
+    println!("  fbqueue sub [options] <command> [args...] (alias: qsub)");
+    println!("  fbqueue stat                              (alias: qstat)");
+    println!("  fbqueue del <job_id>                      (alias: qdel)");
     println!("  fbqueue daemon <start|stop|status>");
-    println!("\nExamples:");
-    println!("  fbqueue sub -q express -c 1 --range 1-10 echo \"Priority job {{}}\"");
+    println!("\nOptions for sub:");
+    println!("  -q QUEUE        Queue name");
+    println!("  -c COST         Resource cost (default: 1)");
+    println!("  -N NAME         Job name");
+    println!("  -W HH:MM:SS     Walltime limit");
+    println!("  -hold_jid ID    Wait for job ID to finish");
+    println!("  -a TIMESTAMP    Start after UNIX timestamp");
+    println!("  -o OUT          Standard output file");
+    println!("  -e ERR          Standard error file");
+    println!("  --range N-M     Batch range expansion");
 }
 
 fn handle_sub(args: &[String]) {
@@ -60,30 +68,43 @@ fn handle_sub(args: &[String]) {
     let mut cli_out: Option<String> = None;
     let mut cli_err: Option<String> = None;
     let mut cli_queue: Option<String> = None;
+    let mut cli_walltime: Option<u64> = None;
+    let mut cli_depend: Option<String> = None;
+    let mut cli_start_after: Option<u64> = None;
 
     while start_idx < args.len() {
-        if (args[start_idx] == "-c" || args[start_idx] == "--cost") && start_idx + 1 < args.len() {
+        let arg = &args[start_idx];
+        if (arg == "-c" || arg == "--cost") && start_idx + 1 < args.len() {
             cli_cost = Some(args[start_idx+1].parse().unwrap_or(1));
             start_idx += 2;
-        } else if (args[start_idx] == "-q" || args[start_idx] == "--queue") && start_idx + 1 < args.len() {
+        } else if (arg == "-q" || arg == "--queue") && start_idx + 1 < args.len() {
             cli_queue = Some(args[start_idx+1].to_string());
             start_idx += 2;
-        } else if (args[start_idx] == "-N" || args[start_idx] == "-J") && start_idx + 1 < args.len() {
+        } else if (arg == "-N" || arg == "-J") && start_idx + 1 < args.len() {
             cli_name = Some(args[start_idx+1].to_string());
             start_idx += 2;
-        } else if args[start_idx] == "-o" && start_idx + 1 < args.len() {
+        } else if arg == "-W" && start_idx + 1 < args.len() {
+            cli_walltime = Some(utils::parse_duration(&args[start_idx+1]));
+            start_idx += 2;
+        } else if arg == "-hold_jid" && start_idx + 1 < args.len() {
+            cli_depend = Some(args[start_idx+1].to_string());
+            start_idx += 2;
+        } else if arg == "-a" && start_idx + 1 < args.len() {
+            cli_start_after = Some(args[start_idx+1].parse().unwrap_or(0));
+            start_idx += 2;
+        } else if arg == "-o" && start_idx + 1 < args.len() {
             cli_out = Some(args[start_idx+1].to_string());
             start_idx += 2;
-        } else if args[start_idx] == "-e" && start_idx + 1 < args.len() {
+        } else if arg == "-e" && start_idx + 1 < args.len() {
             cli_err = Some(args[start_idx+1].to_string());
             start_idx += 2;
-        } else if args[start_idx] == "--range" && start_idx + 1 < args.len() {
+        } else if arg == "--range" && start_idx + 1 < args.len() {
             let parts: Vec<_> = args[start_idx+1].split('-').collect();
             if parts.len() == 2 {
                 if let (Ok(s), Ok(e)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>()) { range = Some((s, e)); }
             }
             start_idx += 2;
-        } else if args[start_idx] == "--list" && start_idx + 1 < args.len() {
+        } else if arg == "--list" && start_idx + 1 < args.len() {
             list = args[start_idx+1].split(',').map(|s| s.to_string()).collect();
             start_idx += 2;
         } else { break; }
@@ -103,7 +124,7 @@ fn handle_sub(args: &[String]) {
                                       else { vec![None] };
 
     for val in values {
-        job::submit_job(cmd_tmpl, args_tmpl, &cwd, val.as_deref(), cli_cost, cli_name.clone(), cli_out.clone(), cli_err.clone(), cli_queue.clone());
+        job::submit_job(cmd_tmpl, args_tmpl, &cwd, val.as_deref(), cli_cost, cli_name.clone(), cli_out.clone(), cli_err.clone(), cli_queue.clone(), cli_walltime, cli_depend.clone(), cli_start_after);
     }
     daemon::ensure_daemon();
 }
@@ -129,19 +150,25 @@ fn handle_stat() {
         }
     }
 
-    println!("FBQueue Status (Default Queue: {} | Global Capacity: {}/{}):", config.default_queue, total_used, config.global_capacity);
+    println!("FBQueue Status (Global Capacity: {}/{}):", total_used, config.global_capacity);
     for q in &config.queues {
         let used = used_caps.get(&q.name).unwrap_or(&0);
         println!("  Queue: {:<10} | Capacity: {:>2}/{:<2} | Priority: {:>3}", q.name, used, q.capacity, q.priority);
     }
     println!("  Done: {}, Failed: {}", done_count, failed_count);
 
+    let now = utils::get_now();
     if !new_entries.is_empty() {
         println!("\nPending Jobs:");
         new_entries.sort_by_key(|e| e.file_name().to_str().unwrap_or("0").trim_end_matches(".job").parse::<usize>().unwrap_or(0));
         for entry in new_entries {
             if let Ok(j) = job::parse_job_file(&entry.path()) {
-                println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {}", j.id, j.name, j.user, j.queue, j.cost);
+                let wait_reason = if let Some(sa) = j.start_after {
+                    if now < sa { format!("Wait until {}", sa) } else { "Capacity".to_string() }
+                } else if !j.depend.is_empty() {
+                    "Dependency".to_string()
+                } else { "Capacity".to_string() };
+                println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | STATUS: Pending ({})", j.id, j.name, j.user, j.queue, j.cost, wait_reason);
             }
         }
     }
@@ -149,7 +176,9 @@ fn handle_stat() {
         println!("\nRunning Jobs:");
         running_jobs.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
         for j in running_jobs {
-            println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {}", j.id, j.name, j.user, j.queue, j.cost);
+            let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
+            let walltime_str = if let Some(wt) = j.walltime { format!("/{}", wt) } else { "".to_string() };
+            println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | TIME: {}{}s", j.id, j.name, j.user, j.queue, j.cost, elapsed, walltime_str);
         }
     }
 }

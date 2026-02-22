@@ -15,7 +15,13 @@ pub struct Job {
     pub stdout: Option<String>,
     pub stderr: Option<String>,
     pub user: String,
-    pub queue: String, // Added queue field
+    pub queue: String,
+    pub walltime: Option<u64>,    // Max execution time in seconds
+    pub depend: Vec<String>,      // Job IDs to wait for
+    pub start_after: Option<u64>, // UNIX timestamp
+    pub start_at: Option<u64>,    // Actual start time
+    pub _end_at: Option<u64>,     // Actual end time (future use)
+    pub _exit_code: Option<i32>,  // Process exit code (future use)
 }
 
 pub fn parse_job_file(path: &Path) -> io::Result<Job> {
@@ -31,7 +37,13 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
     let mut stdout = None;
     let mut stderr = None;
     let mut user = String::new();
-    let mut queue = "default".to_string(); // Initialize queue
+    let mut queue = "default".to_string();
+    let mut walltime = None;
+    let mut depend = Vec::new();
+    let mut start_after = None;
+    let mut start_at = None;
+    let mut end_at = None;
+    let mut exit_code = None;
 
     for line in reader.lines() {
         let line = line?;
@@ -44,7 +56,13 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
         else if line.starts_with("stdout: ") { stdout = Some(line[8..].to_string()); }
         else if line.starts_with("stderr: ") { stderr = Some(line[8..].to_string()); }
         else if line.starts_with("user: ") { user = line[6..].to_string(); }
-        else if line.starts_with("queue: ") { queue = line[7..].to_string(); } // Parse queue
+        else if line.starts_with("queue: ") { queue = line[7..].to_string(); }
+        else if line.starts_with("walltime: ") { walltime = Some(line[10..].parse().unwrap_or(0)); }
+        else if line.starts_with("depend: ") { depend = line[8..].split(',').map(|s| s.trim().to_string()).collect(); }
+        else if line.starts_with("start_after: ") { start_after = Some(line[13..].parse().unwrap_or(0)); }
+        else if line.starts_with("start_at: ") { start_at = Some(line[10..].parse().unwrap_or(0)); }
+        else if line.starts_with("end_at: ") { end_at = Some(line[8..].parse().unwrap_or(0)); }
+        else if line.starts_with("exit_code: ") { exit_code = Some(line[11..].parse().unwrap_or(0)); }
         else if line.starts_with("env: ") {
             let part = &line[5..];
             if let Some(pos) = part.find('=') {
@@ -53,13 +71,14 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
         }
     }
     if name.is_empty() { name = cmd.clone(); }
-    Ok(Job { id, name, cmd, args, cwd, envs, cost, stdout, stderr, user, queue })
+    Ok(Job { id, name, cmd, args, cwd, envs, cost, stdout, stderr, user, queue, walltime, depend, start_after, start_at, _end_at: end_at, _exit_code: exit_code })
 }
 
 pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<&str>, 
                   cli_cost: Option<usize>, cli_name: Option<String>, 
                   cli_out: Option<String>, cli_err: Option<String>,
-                  cli_queue: Option<String>) { // Added cli_queue
+                  cli_queue: Option<String>, cli_walltime: Option<u64>,
+                  cli_depend: Option<String>, cli_start_after: Option<u64>) {
     let replace = |s: &str| if let Some(v) = val { s.replace("{}", v) } else { s.to_string() };
     let cmd = replace(cmd_tmpl);
     let job_args: Vec<_> = args_tmpl.iter().map(|s| replace(s)).collect();
@@ -71,6 +90,8 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let mut script_out = None;
     let mut script_err = None;
     let mut script_queue = None;
+    let mut script_walltime = None;
+    let mut script_depend = Vec::new();
 
     let script_path = if Path::new(&cmd).is_absolute() { PathBuf::from(&cmd) } else { cwd.join(&cmd) };
     if let Ok(file) = fs::File::open(&script_path) {
@@ -88,6 +109,12 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
                             "-q" if i + 1 < parts.len() => { script_queue = Some(parts[i+1].to_string()); i += 2; }
                             "-o" if i + 1 < parts.len() => { script_out = Some(parts[i+1].to_string()); i += 2; }
                             "-e" if i + 1 < parts.len() => { script_err = Some(parts[i+1].to_string()); i += 2; }
+                            "-hold_jid" if i + 1 < parts.len() => { script_depend.push(parts[i+1].to_string()); i += 2; }
+                            "-l" if i + 1 < parts.len() && parts[i+1].starts_with("h_rt=") => {
+                                let time_str = parts[i+1].trim_start_matches("h_rt=");
+                                script_walltime = Some(utils::parse_duration(time_str));
+                                i += 2;
+                            }
                             "-pe" if i + 2 < parts.len() && parts[i+1] == "smp" => { 
                                 script_cost = parts[i+2].parse().unwrap_or(script_cost); i += 3; 
                             }
@@ -104,6 +131,8 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let final_out = cli_out.or(script_out);
     let final_err = cli_err.or(script_err);
     let final_queue = cli_queue.or(script_queue).unwrap_or(def_q);
+    let final_walltime = cli_walltime.or(script_walltime);
+    let final_depend = cli_depend.map(|s| s.split(',').map(|v| v.trim().to_string()).collect()).unwrap_or(script_depend);
 
     let job_id = utils::get_next_id();
     let fbq_dir = utils::get_fbq_dir();
@@ -114,6 +143,10 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let mut content = format!("id: {}\nname: {}\ncmd: {}\ncost: {}\nuser: {}\nqueue: {}\n", job_id, final_name, cmd, final_cost, current_user, final_queue);
     if let Some(o) = final_out { content.push_str(&format!("stdout: {}\n", o)); }
     if let Some(e) = final_err { content.push_str(&format!("stderr: {}\n", e)); }
+    if let Some(w) = final_walltime { content.push_str(&format!("walltime: {}\n", w)); }
+    if !final_depend.is_empty() { content.push_str(&format!("depend: {}\n", final_depend.join(","))); }
+    if let Some(s) = cli_start_after { content.push_str(&format!("start_after: {}\n", s)); }
+    
     for arg in job_args { content.push_str(&format!("arg: {}\n", arg)); }
     content.push_str(&format!("cwd: {}\n", cwd.display()));
     for (key, val) in env::vars() { content.push_str(&format!("env: {}={}\n", key, val)); }
