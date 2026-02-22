@@ -20,9 +20,10 @@ pub fn ensure_daemon() {
     } else { false };
 
     if !is_running {
+        let fbq_dir = utils::get_fbq_dir();
         let exe = env::current_exe().expect("Failed to get exe path");
         let mut cmd = process::Command::new(exe);
-        cmd.arg("daemon").arg("start");
+        cmd.arg("daemon").arg("start").arg(fbq_dir.display().to_string());
         #[cfg(unix)] {
             use std::os::unix::process::CommandExt;
             cmd.stdin(process::Stdio::null()).stdout(process::Stdio::null()).stderr(process::Stdio::null());
@@ -138,11 +139,13 @@ pub fn run_daemon() {
             for (entry, j, _, _) in job_list {
                 let q_limit = config.queues.iter().find(|q| q.name == j.queue).map(|q| q.capacity).unwrap_or(1);
                 let q_used: usize = running_jobs.iter().filter(|(_, _, _, qn, _, _)| qn == &j.queue).map(|(_, _, c, _, _, _)| *c).sum();
+                let global_used: usize = running_jobs.iter().map(|(_, _, c, _, _, _)| *c).sum();
 
-                if q_used == 0 || (q_used + j.cost <= q_limit) {
-                    let global_used: usize = running_jobs.iter().map(|(_, _, c, _, _, _)| *c).sum();
-                    if global_used > 0 && global_used + j.cost > config.global_capacity { continue; }
+                // Check capacity. Allow the first job even if it exceeds limit to avoid deadlock.
+                let can_run_queue = (q_used == 0) || (q_used + j.cost <= q_limit);
+                let can_run_global = (global_used == 0) || (global_used + j.cost <= config.global_capacity);
 
+                if can_run_queue && can_run_global {
                     let rpath = fbq_dir.join("queue/running").join(entry.file_name());
                     if fs::rename(entry.path(), &rpath).is_ok() {
                         if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&rpath) {
@@ -165,14 +168,13 @@ pub fn run_daemon() {
                             let err_f = if stdout_path == stderr_path { out_f.try_clone().unwrap() }
                                         else { fs::OpenOptions::new().create(true).append(true).open(&stderr_path).unwrap_or(out_f.try_clone().unwrap()) };
 
-                            // Determine interpreter
                             let script_path = if Path::new(&j.cmd).is_absolute() { PathBuf::from(&j.cmd) } else { j.cwd.join(&j.cmd) };
                             let is_file = script_path.is_file();
                             
                             #[cfg(unix)]
                             let mut child_cmd = if is_file {
                                 let mut c = process::Command::new("sh");
-                                c.arg(&j.cmd); // Execute file via sh
+                                c.arg(&j.cmd);
                                 c
                             } else {
                                 process::Command::new(&j.cmd)
@@ -187,10 +189,7 @@ pub fn run_daemon() {
                                 process::Command::new(&j.cmd)
                             };
 
-                            if !is_file { child_cmd.args(&j.args); }
-                            else { child_cmd.args(&j.args); } // args still apply
-
-                            child_cmd.current_dir(&j.cwd).envs(j.envs).stdout(out_f).stderr(err_f);
+                            child_cmd.args(&j.args).current_dir(&j.cwd).envs(j.envs).stdout(out_f).stderr(err_f);
 
                             if let Ok(child) = child_cmd.spawn() {
                                 running_jobs.push((j.id, child, j.cost, j.queue, now, j.walltime));

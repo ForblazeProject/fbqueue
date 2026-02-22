@@ -2,35 +2,19 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-pub fn get_now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
-}
-
-pub fn parse_duration(s: &str) -> u64 {
-    let parts: Vec<&str> = s.split(':').collect();
-    match parts.len() {
-        3 => { // HH:MM:SS
-            let h = parts[0].parse::<u64>().unwrap_or(0);
-            let m = parts[1].parse::<u64>().unwrap_or(0);
-            let s = parts[2].parse::<u64>().unwrap_or(0);
-            h * 3600 + m * 60 + s
-        }
-        2 => { // MM:SS
-            let m = parts[0].parse::<u64>().unwrap_or(0);
-            let s = parts[1].parse::<u64>().unwrap_or(0);
-            m * 60 + s
-        }
-        1 => { // SS
-            parts[0].parse::<u64>().unwrap_or(0)
-        }
-        _ => 0,
-    }
-}
-
 pub fn get_fbq_dir() -> PathBuf {
-    let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"))
-        .expect("Could not find HOME or USERPROFILE environment variable");
-    PathBuf::from(home).join(".fbqueue")
+    let dir = if let Ok(d) = env::var("FBQUEUE_DIR") {
+        PathBuf::from(d)
+    } else {
+        let home = env::var("HOME").or_else(|_| env::var("USERPROFILE"))
+            .expect("Could not find HOME, USERPROFILE, or FBQUEUE_DIR");
+        PathBuf::from(home).join(".fbqueue")
+    };
+    // Ensure the directory exists
+    if !dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+    }
+    dir
 }
 
 pub fn init_dirs() {
@@ -63,17 +47,11 @@ pub fn get_config() -> Config {
     let mut default_queue = "default".to_string();
     let mut global_capacity = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(8);
     let mut queues = Vec::new();
-    
-    // Default fallback queue
-    queues.push(QueueConfig {
-        name: "default".to_string(),
-        capacity: global_capacity,
-        priority: 10,
-    });
 
     if let Ok(content) = fs::read_to_string(config_path) {
         let mut current_queue: Option<QueueConfig> = None;
         for line in content.lines() {
+            let is_indented = line.starts_with(' ') || line.starts_with('\t');
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') { continue; }
             
@@ -90,8 +68,11 @@ pub fn get_config() -> Config {
                 });
             } else if line.starts_with("capacity: ") {
                 let val = line[10..].trim().parse().unwrap_or(1);
-                if let Some(ref mut q) = current_queue { q.capacity = val; }
-                else { global_capacity = val; }
+                if is_indented && current_queue.is_some() {
+                    if let Some(ref mut q) = current_queue { q.capacity = val; }
+                } else {
+                    global_capacity = val;
+                }
             } else if line.starts_with("priority: ") {
                 let val = line[10..].trim().parse().unwrap_or(10);
                 if let Some(ref mut q) = current_queue { q.priority = val; }
@@ -102,9 +83,12 @@ pub fn get_config() -> Config {
         }
     }
     
-    // Ensure "default" queue capacity is updated if global_capacity changed and no explicit default queue block
-    if let Some(dq) = queues.iter_mut().find(|q| q.name == "default") {
-        if dq.capacity > global_capacity { dq.capacity = global_capacity; }
+    if !queues.iter().any(|q| q.name == default_queue) {
+        queues.push(QueueConfig {
+            name: default_queue.clone(),
+            capacity: global_capacity,
+            priority: 10,
+        });
     }
 
     Config { default_queue, global_capacity, queues }
@@ -115,6 +99,29 @@ fn add_or_replace_queue(queues: &mut Vec<QueueConfig>, q: QueueConfig) {
         queues[pos] = q;
     } else {
         queues.push(q);
+    }
+}
+
+pub fn get_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+}
+
+pub fn parse_duration(s: &str) -> u64 {
+    let parts: Vec<&str> = s.split(':').collect();
+    match parts.len() {
+        3 => {
+            let h = parts[0].parse::<u64>().unwrap_or(0);
+            let m = parts[1].parse::<u64>().unwrap_or(0);
+            let s = parts[2].parse::<u64>().unwrap_or(0);
+            h * 3600 + m * 60 + s
+        }
+        2 => {
+            let m = parts[0].parse::<u64>().unwrap_or(0);
+            let s = parts[1].parse::<u64>().unwrap_or(0);
+            m * 60 + s
+        }
+        1 => parts[0].parse::<u64>().unwrap_or(0),
+        _ => 0,
     }
 }
 
@@ -135,7 +142,8 @@ pub fn get_next_id() -> String {
     } else {
         let subdirs = ["queue/new", "queue/running", "queue/done", "queue/failed", "queue/cancel"];
         for subdir in &subdirs {
-            if let Ok(entries) = fs::read_dir(fbq_dir.join(subdir)) {
+            let path = fbq_dir.join(subdir);
+            if let Ok(entries) = fs::read_dir(path) {
                 for entry in entries.filter_map(|e| e.ok()) {
                     if let Some(name) = entry.file_name().to_str() {
                         if name.ends_with(".job") {

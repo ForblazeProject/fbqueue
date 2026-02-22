@@ -20,7 +20,6 @@ fn main() {
     else if args.len() < 2 { print_help(); return; }
     else { &args[1] };
 
-    // Support style override via env or inferred from program_name
     let default_style = if program_name == "qstat" { "pbs" } else { "default" };
 
     match command {
@@ -134,7 +133,7 @@ fn handle_stat(args: &[String], default_style: &str) {
         }
     }
 
-    let mut new_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
+    let new_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
     let running_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/running")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
     let done_count = fs::read_dir(fbq_dir.join("queue/done")).map(|d| d.count()).unwrap_or(0);
     let failed_count = fs::read_dir(fbq_dir.join("queue/failed")).map(|d| d.count()).unwrap_or(0);
@@ -151,8 +150,9 @@ fn handle_stat(args: &[String], default_style: &str) {
             running_jobs.push(j);
         }
     }
-    new_entries.sort_by_key(|e| e.file_name().to_str().unwrap_or("0").trim_end_matches(".job").parse::<usize>().unwrap_or(0));
-    for entry in new_entries {
+    let mut sorted_new = new_entries;
+    sorted_new.sort_by_key(|e| e.file_name().to_str().unwrap_or("0").trim_end_matches(".job").parse::<usize>().unwrap_or(0));
+    for entry in sorted_new {
         if let Ok(j) = job::parse_job_file(&entry.path()) { pending_jobs.push(j); }
     }
 
@@ -226,7 +226,13 @@ fn handle_del(args: &[String]) {
 fn handle_daemon(args: &[String]) {
     if args.len() < 3 { return; }
     match args[2].as_str() {
-        "start" => daemon::run_daemon(),
+        "start" => {
+            // New: Allow passing directory path as an argument to daemon start
+            if args.len() > 3 {
+                env::set_var("FBQUEUE_DIR", &args[3]);
+            }
+            daemon::run_daemon();
+        },
         "stop" => {
             let lock_file = utils::get_fbq_dir().join("run/daemon.pid");
             if let Ok(pid_str) = fs::read_to_string(&lock_file) {
