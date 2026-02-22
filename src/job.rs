@@ -16,12 +16,12 @@ pub struct Job {
     pub stderr: Option<String>,
     pub user: String,
     pub queue: String,
-    pub walltime: Option<u64>,    // Max execution time in seconds
-    pub depend: Vec<String>,      // Job IDs to wait for
-    pub start_after: Option<u64>, // UNIX timestamp
-    pub start_at: Option<u64>,    // Actual start time
-    pub _end_at: Option<u64>,     // Actual end time (future use)
-    pub _exit_code: Option<i32>,  // Process exit code (future use)
+    pub walltime: Option<u64>,
+    pub depend: Vec<String>,
+    pub start_after: Option<u64>,
+    pub start_at: Option<u64>,
+    pub _end_at: Option<u64>,
+    pub _exit_code: Option<i32>,
 }
 
 pub fn parse_job_file(path: &Path) -> io::Result<Job> {
@@ -110,9 +110,16 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
                             "-o" if i + 1 < parts.len() => { script_out = Some(parts[i+1].to_string()); i += 2; }
                             "-e" if i + 1 < parts.len() => { script_err = Some(parts[i+1].to_string()); i += 2; }
                             "-hold_jid" if i + 1 < parts.len() => { script_depend.push(parts[i+1].to_string()); i += 2; }
-                            "-l" if i + 1 < parts.len() && parts[i+1].starts_with("h_rt=") => {
-                                let time_str = parts[i+1].trim_start_matches("h_rt=");
-                                script_walltime = Some(utils::parse_duration(time_str));
+                            "-l" if i + 1 < parts.len() => {
+                                let arg = parts[i+1];
+                                if arg.starts_with("h_rt=") {
+                                    script_walltime = Some(utils::parse_duration(&arg[5..]));
+                                } else if arg.starts_with("nodes=") {
+                                    // Handle PBS nodes=1:ppn=4
+                                    if let Some(pos) = arg.find("ppn=") {
+                                        script_cost = arg[pos+4..].parse().unwrap_or(script_cost);
+                                    }
+                                }
                                 i += 2;
                             }
                             "-pe" if i + 2 < parts.len() && parts[i+1] == "smp" => { 
