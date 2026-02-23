@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::utils;
 use crate::job;
 use crate::config;
+use crate::daemon;
 
 pub fn handle_stat(args: &[String], default_style: &str) {
     utils::init_dirs();
@@ -51,8 +52,7 @@ pub fn handle_stat(args: &[String], default_style: &str) {
 
         let now = utils::get_now();
         if !pending_jobs.is_empty() {
-            println!("
-Pending Jobs:");
+            println!("\nPending Jobs:");
             for j in pending_jobs {
                 let wait_reason = if let Some(sa) = j.start_after {
                     if now < sa { format!("Wait until {}", sa) } else { "Capacity".to_string() }
@@ -62,8 +62,7 @@ Pending Jobs:");
             }
         }
         if !running_jobs.is_empty() {
-            println!("
-Running Jobs:");
+            println!("\nRunning Jobs:");
             running_jobs.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
             for j in running_jobs {
                 let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
@@ -71,6 +70,10 @@ Running Jobs:");
                 println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | TIME: {}{}s", j.id, j.name, j.user, j.queue, j.cost, elapsed, walltime_str);
             }
         }
+    }
+    // Ensure daemon is running if there are pending jobs
+    if !pending_jobs.is_empty() || !running_entries.is_empty() {
+        daemon::ensure_daemon();
     }
 }
 
