@@ -2,56 +2,57 @@
 
 ![FBQueue Logo Placeholder](https://via.placeholder.com/150/0000FF/FFFFFF?text=FBQueue)
 
-FBQueue は、Rust 製の軽量で堅牢なローカルジョブスケジューラです。共有計算サーバにおいて、ユーザーが自身の計算リソース（CPU/GPU 時間など）を「お行儀よく」管理し、大量の計算ジョブを効率的かつ確実に実行するために設計されています。
+FBQueue is a lightweight, robust local job scheduler written in Rust. It is designed for researchers and developers who need efficient job management on shared computing resources without the complexity of system-wide installations.
 
-## 🎨 特徴 (Features)
+## 💡 Why FBQueue?
 
-- **超軽量＆ゼロ依存**: Rust 標準ライブラリのみで構築。単一バイナリで Linux および Windows に対応。
-- **リソース管理**: 抽象的な `capacity` とジョブごとの `cost` を用いて、CPU/GPU などのリソース使用量を柔軟に制御。
-- **複数キュー & 優先度**: キューごとに Capacity と Priority を設定可能。高優先度ジョブを優先的に実行。
-- **PBS/SGE互換**:
-    - **ディレクティブ解析**: `#PBS`, `#$`, `#SBATCH` 等のスクリプト内記述を自動認識。
-    - **PBSスタイル出力**: `qstat` 互換の表形式表示。
-    - **安全な実行**: ジョブスクリプトの実行権限 (`+x`) を書き換えることなく、シェル経由で安全に実行。
-- **バッチ処理**: `--range` や `--list` オプションにより、シンプルなコマンドでジョブを一括投入。
-- **耐障害性**: デーモンが突然死しても、再起動時に中断されたジョブを自動検知して再開。
+FBQueue addresses the gap between manual script execution and heavy enterprise schedulers like Slurm or PBS.
 
-## 🚀 使い方 (Usage)
+- **Polite Resource Sharing**: Manage your own jobs "politely" on multi-user servers. Limit your personal resource consumption (CPU/GPU) to ensure fair access for everyone.
+- **Personal Scheduler in Restricted Environments**: Get advanced scheduling (dependencies, priorities, walltime) on any server, even without root access or a system-wide scheduler.
+- **Enterprise-Grade Security & Simplicity**:
+    - **No Network Ports**: Operates entirely via the file system. No firewall rules or port exposures required.
+    - **No Database**: Uses a transparent file-based state management system.
+    - **Auto-Shutdown Daemon**: The daemon process automatically terminates after 5 minutes of inactivity, ensuring it doesn't linger as a persistent background process.
+- **Zero-Config Deployment**: A single, dependency-free binary that runs in user-space.
 
-### ジョブの投入 (sub)
-Linux でも Windows でも、カレントディレクトリにあるファイルは名前だけで投入可能です。パスの区切り文字 (`./` や `.\`) は自動で補完されます。
+## 🎨 Key Features
+
+- **Resource-Aware Scheduling**: Flexible control using abstract `capacity` and job `cost`.
+- **Multi-Queue & Priority Support**: Configure multiple queues with different priorities and limits.
+- **PBS/HPC Compatibility**: Supports PBS-style commands and parses embedded script directives (`#PBS`, `#SBATCH`, etc.). Detailed usage is available in the [MANUAL](MANUAL.md).
+- **Batch Processing**: Simplified submission for parameter studies using `--range` and `--list`.
+- **Resilience**: Automatically recovers and resumes interrupted jobs after a system reboot or daemon restart.
+
+## 🚀 Quick Start
+
+### Job Submission (`sub`)
+FBQueue automatically handles path prefixes and shell selection.
 
 ```bash
 # Linux
 fbqueue sub my_script.sh
 
 # Windows
-fbqueue sub my_script.bat
 fbqueue sub my_script.ps1
 ```
 
-### ステータスの確認 (stat)
-現在のリソース使用状況と、ジョブの進捗（Pending/Running/Done）を確認できます。
-
+### Status & Management
 ```bash
-fbqueue stat
+fbqueue stat          # Check job status and resource usage
+fbqueue del <job_id>  # Delete/Cancel a job
 ```
 
-### ジョブの削除 (del)
-```bash
-fbqueue del <job_id>
-```
+## 📂 Environment & Project Isolation
 
-## 🛠️ Windows 環境でのヒント
-Windows では、シンボリックリンクやエイリアス（qsub等）を使用するよりも、常に `fbqueue sub`, `fbqueue stat` といった明示的なサブコマンド形式を使用することを推奨します。
+By default, FBQueue stores its data in `~/.fbqueue/` (the user's home directory), keeping your queue private. 
 
-## 📂 環境の切り替え
-`FBQUEUE_DIR` 環境変数を設定することで、計算プロジェクトごとに独立したキューとリソース枠を持つことができます。
+For team collaboration or project-specific management, you can point multiple users to the same directory using the `FBQUEUE_DIR` environment variable, enabling a shared lightweight scheduler for a specific workgroup:
 
 ```bash
-export FBQUEUE_DIR=/path/to/project_a/.fbqueue
+export FBQUEUE_DIR=/path/to/shared_project/.fbqueue
 fbqueue sub ./calc.sh
 ```
 
 ---
-*Saturday, February 21, 2026 - Verified on Linux and Windows.*
+*Monday, February 23, 2026 - Documentation updated for international release.*

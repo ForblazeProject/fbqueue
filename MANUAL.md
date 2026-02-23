@@ -1,56 +1,64 @@
 # FBQueue (Forblaze Queue) - Development Manual
 
-このドキュメントは、FBQueue の詳細な設計、実装、および今後の開発ロードマップを記述するものです。開発者向けのメモと、公開時の詳細マニュアルの両方を兼ねます。
+This document provides a detailed description of the design, implementation, and future roadmap of FBQueue. It serves both as internal documentation for developers and a comprehensive manual for users.
 
 ---
 
-## 目次
+## Table of Contents
 
-1.  [プロジェクトの哲学 (Core Philosophy)](#1-プロジェクトの哲学-core-philosophy)
-2.  [ディレクトリ構造 (Directory Structure)](#2-ディレクトリ構造-directory-structure)
-3.  [ジョブファイル形式 (.job)](#3-ジョブファイル形式-job)
-4.  [リソース管理 (Capacity & Cost)](#4-リソース管理-capacity--cost)
-5.  [複数キューと優先度](#5-複数キューと優先度)
-6.  [高度なスケジューリング機能](#6-高度なスケジューリング機能)
-7.  [Windows 環境での動作とガイドライン](#7-windows-環境での動作とガイドライン)
-8.  [リファレンス (CLI & スクリプト対応表)](#8-リファレンス-cli--スクリプト対応表)
-9.  [ToDo / Roadmap](#9-todo--roadmap)
+1.  [Core Philosophy](#1-core-philosophy)
+2.  [Directory Structure](#2-directory-structure)
+3.  [Job File Specification (.job)](#3-job-file-specification-job)
+4.  [Resource Management (Capacity & Cost)](#4-resource-management-capacity--cost)
+5.  [Multi-Queue and Priority Support](#5-multi-queue-and-priority-support)
+6.  [Advanced Scheduling Features](#6-advanced-scheduling-features)
+7.  [Windows Implementation and Guidelines](#7-windows-implementation-and-guidelines)
+8.  [CLI & Directive Reference](#8-cli--directive-reference)
+9.  [Roadmap](#9-roadmap)
 
 ---
 
-## 1. プロジェクトの哲学 (Core Philosophy)
+## 1. Core Philosophy
 
-FBQueue は、以下の原則に基づいて設計・実装されています。
+FBQueue is designed to provide robust job scheduling without the administrative overhead or security risks associated with traditional enterprise software.
 
-*   **ゼロ依存 (Zero Dependency)**: Rust 標準ライブラリのみを使用。外部クレートに依存せず、ポータビリティを追求。
-*   **シングルバイナリ (Single Binary)**: 実行ファイル一つで Linux/Windows 両対応。
-*   **透過性 (Transparency)**: すべてのジョブ状態をファイルシステムで見える化。
-*   **オートオフ (Auto-Off)**: 仕事がなければ 5 分で自動終了する「お行儀の良さ」。
-*   **堅牢性 (Robustness)**: デーモン死や PC 再起動からの自動復旧機能を搭載。
+*   **Zero Dependency & Zero Config**: Built exclusively with the Rust standard library. A single binary that runs entirely in user-space without root access.
+*   **Security-First Architecture**:
+    - **No Network Ports**: Operates strictly via the file system. It avoids exposing any network surface, making it ideal for restricted corporate or research environments.
+    - **No Database Engine**: Uses a transparent, file-based state management system. No complex database setup or maintenance is required.
+*   **Resource Efficiency (Auto-Shutdown)**: The daemon is a transient process. It automatically terminates after 5 minutes of inactivity (no running or pending jobs) to conserve system resources and ensure it doesn't linger as a persistent process.
+*   **Transparency**: All job states are visible and manageable directly through the file system, allowing for easy inspection and debugging.
+*   **Robustness & Resilience**: Includes automatic recovery for interrupted jobs following a daemon restart or system reboot.
 
-## 2. ディレクトリ構造 (Directory Structure)
+## 2. Directory Structure
 
-FBQueue は、`FBQUEUE_DIR` 環境変数で指定された場所、または `~/.fbqueue/` を使用します。
+FBQueue operates within the directory specified by the `FBQUEUE_DIR` environment variable. If not set, it defaults to the user's home directory (`~/.fbqueue/`).
+
+### Personal vs. Shared Usage
+- **Personal Mode (Default)**: Using `~/.fbqueue/` ensures your job queue is private and doesn't interfere with other users.
+- **Shared Mode**: By setting `FBQUEUE_DIR` to a shared folder (e.g., a common NFS or SMB path), multiple users can access the same scheduler instance, enabling team-based job coordination on a single machine.
 
 ```
 .fbqueue/
-├── config                     # 全体の設定ファイル
-├── queue/                     # ジョブキュー本体
-│   ├── new/                   # 待機中
-│   ├── running/               # 実行中
-│   ├── done/                  # 正常終了
-│   ├── failed/                # 失敗・強制終了
-│   └── cancel/                # キャンセルシグナル
-├── logs/                      # (旧) ログ出力先
-└── run/                       # デーモン管理ファイル
-    ├── daemon.pid             # PIDファイル
-    ├── last_id                # 次に発行する連番ID
-    └── id.lock/               # ID発行用ロック
+├── config                     # Main configuration file (YAML-like syntax)
+├── queue/                     # Job queue root
+│   ├── new/                   # Pending jobs
+│   ├── running/               # Active jobs
+│   ├── done/                  # Successfully completed jobs
+│   ├── failed/                # Jobs that failed or were forcibly terminated
+│   └── cancel/                # Signals for job cancellation
+├── logs/                      # (Legacy) Output log location
+└── run/                       # Daemon management files
+    ├── daemon.pid             # Current daemon process ID
+    ├── last_id                # Counter for the next job ID
+    └── id.lock/               # Lock for ID issuance (concurrency control)
 ```
 
-## 3. ジョブファイル形式 (.job)
+## 3. Job File Specification (.job)
 
-```
+Internal `.job` files use a simple key-value format to store job metadata:
+
+```text
 id: 1
 name: MyJob
 cmd: ./script.sh
@@ -66,98 +74,97 @@ depend: 10,11
 start_after: 1771766817
 ```
 
-## 4. リソース管理 (Capacity & Cost)
+## 4. Resource Management (Capacity & Cost)
 
-*   **`capacity`**: マシン全体の最大リソース許容量。`config` で設定。
-*   **`cost`**: 各ジョブが消費するリソースの重み。投入時に `-c` で指定。
-*   **判定**: `used_capacity + cost <= capacity` の場合のみジョブが開始されます。
+*   **`capacity`**: The total resource allocation limit (e.g., CPU cores or GPU units) for the environment, defined in `config`.
+*   **`cost`**: The resource "weight" or consumption of an individual job, specified at submission with `-c`.
+*   **Scheduling Logic**: A job is started only when `currently_used_capacity + job_cost <= total_capacity`.
 
-## 5. 複数キューと優先度
+## 5. Multi-Queue and Priority Support
 
-`~/.fbqueue/config` で定義し、リソースの配分と実行順序を制御します。
+Queues are defined in the `config` file to control resource distribution and execution order.
 
 ```text
-capacity: 16          # マシン全体の最大容量
+capacity: 16          # Global maximum capacity
 default_queue: batch
 
 queue: batch
-  capacity: 8         # このキューで使える最大量
-  priority: 10        # 低優先度
+  capacity: 8         # Maximum capacity for this queue
+  priority: 10        # Lower priority value
 
 queue: express
-  capacity: 4         # このキューで使える最大量
-  priority: 100       # 高優先度
+  capacity: 4         # Maximum capacity for this queue
+  priority: 100       # Higher priority value (processed first)
 ```
 
-## 6. 高度なスケジューリング機能
+## 6. Advanced Scheduling Features
 
 ### Walltime (`-W`)
-指定時間を超えたジョブを自動強制終了。
+Automatically terminates jobs that exceed the specified execution time limit.
 ```bash
 fbqueue sub -W 01:30:00 ./long_task.sh
 ```
 
-### Dependency (`-hold_jid`)
-指定したジョブ ID が成功（Done）するまで実行を待機。
+### Dependency Management (`-hold_jid`)
+Holds job execution until the specified job ID(s) finish successfully (`Done`). This allows for complex task-graph (DAG) execution.
 ```bash
 fbqueue sub -hold_jid 123 ./next_task.sh
 ```
 
 ### Delayed Start (`-a`)
-指定時刻（UNIXタイムスタンプ）以降にジョブを開始。
+Schedules a job to start after a specific absolute time (UNIX timestamp).
 ```bash
 fbqueue sub -a 1771766817 ./future_task.sh
 ```
 
-## 7. Windows 環境での動作とガイドライン
+## 7. Windows Implementation and Guidelines
 
-### スクリプト実行
-拡張子に応じて適切なインタプリタを自動選択：
-- **`.bat`, `.cmd`**: `cmd /c` で実行。
-- **`.ps1`**: `powershell -ExecutionPolicy Bypass -File` で実行。
+### Interpreter Selection
+The appropriate interpreter is automatically selected based on the file extension:
+- **`.bat`, `.cmd`**: Executed via `cmd /c`.
+- **`.ps1`**: Executed via `powershell -ExecutionPolicy Bypass -File`.
 
-### 安全な実行方式 (PBS互換)
-ジョブスクリプトの実行権限 (`+x`) を書き換えることなく、シェル経由で安全に実行します。オリジナルファイルを汚しません。
+### Secure Script Execution
+Jobs are executed via their respective shells without modifying the original script's file permissions (`+x` on Linux/macOS). This ensures script integrity and avoids security issues in shared environments.
 
-### 推奨事項
-Windows ではエイリアス（qsub.exe等）よりも、常に `fbqueue sub` などの明示的なサブコマンド形式を推奨します。
+## 8. CLI & Directive Reference
 
-## 8. リファレンス (CLI & スクリプト対応表)
+### Job Submission Options (`fbqueue sub`)
 
-### CLI オプション (fbqueue sub)
+FBQueue supports many options common in HPC schedulers for easy migration.
 
-| オプション | 内部パラメータ | 説明 | デフォルト |
+| Option | Parameter | Description | Default |
 | :--- | :--- | :--- | :--- |
-| `-c`, `--cost` | `cost` | 消費リソース量 | `1` |
-| `-N`, `-J` | `name` | ジョブ名（表示用） | コマンド名 |
-| `-q`, `--queue` | `queue` | 投入先のキュー名 | `default_queue` |
-| `-W` | `walltime` | 実行時間制限 (`HH:MM:SS`) | 無制限 |
-| `-hold_jid` | `depend` | 指定IDの終了を待つ | - |
-| `-a` | `start_after` | 開始予約時刻 (`UNIX TIMESTAMP`) | 即時 |
-| `-o` | `stdout` | 標準出力リダイレクト先 | `<cwd>/<name>.o<id>` |
-| `-e` | `stderr` | 標準エラーリダイレクト先 | `<cwd>/<name>.e<id>` |
-| `--range` | - | 数値範囲一括投入 (`N-M`) | - |
-| `--list` | - | リスト一括投入 (`A,B,C`) | - |
+| `-c`, `--cost` | `cost` | Resource weight per job | `1` |
+| `-N`, `-J` | `name` | Job name (for display) | Command name |
+| `-q`, `--queue` | `queue` | Target queue name | `default_queue` |
+| `-W` | `walltime` | Execution time limit (`HH:MM:SS`) | Unlimited |
+| `-hold_jid` | `depend` | Wait for completion of job ID(s) | - |
+| `-a` | `start_after` | Scheduled start time (`UNIX TIMESTAMP`) | Immediate |
+| `-o` | `stdout` | Redirect path for stdout | `<cwd>/<name>.o<id>` |
+| `-e` | `stderr` | Redirect path for stderr | `<cwd>/<name>.e<id>` |
+| `--range` | - | Submit range of jobs (`N-M`) | - |
+| `--list` | - | Submit list of jobs (`A,B,C`) | - |
 
-### スクリプトディレクティブ対応
+### Supported Script Directives
 
-FBQueue はスクリプト内の命令を以下の内部パラメータへ自動マッピングします。
+FBQueue automatically maps embedded script directives to internal job parameters. This allows you to use your existing Slurm or PBS scripts without modification.
 
-| 機能 | 外部記法 (例) | FBQueue 内部パラメータ |
+| Feature | External Notation (Example) | Internal Parameter |
 | :--- | :--- | :--- |
-| **ジョブ名** | `#PBS -N name`, `#SBATCH -J name` | **`name`** |
-| **並列数/コスト** | `#$ -pe smp 4`, `#SBATCH -c 4` | **`cost`** |
-| **投入キュー** | `#PBS -q express`, `#SBATCH -p express` | **`queue`** |
-| **出力先** | `#$ -o /path/to/log`, `#SBATCH -o ...` | **`stdout`** |
-| **エラー先** | `#PBS -e /path/to/err`, `#SBATCH -e ...` | **`stderr`** |
-| **依存関係** | `#$ -hold_jid 123` | **`depend`** |
-| **実行制限** | `#$ -l h_rt=01:30:00` | **`walltime`** |
+| **Job Name** | `#PBS -N name`, `#SBATCH -J name` | **`name`** |
+| **Resource/Cost** | `#$ -pe smp 4`, `#SBATCH -c 4` | **`cost`** |
+| **Target Queue** | `#PBS -q express`, `#SBATCH -p express` | **`queue`** |
+| **Stdout Path** | `#$ -o /path/to/log`, `#SBATCH -o ...` | **`stdout`** |
+| **Stderr Path** | `#PBS -e /path/to/err`, `#SBATCH -e ...` | **`stderr`** |
+| **Dependencies** | `#$ -hold_jid 123` | **`depend`** |
+| **Walltime** | `#$ -l h_rt=01:30:00` | **`walltime`** |
 
-## 9. ToDo / Roadmap
+## 9. Roadmap
 
-*   **バックグラウンド・アーカイブ**: アイドル時の古いジョブの `tar.gz` 圧縮。
-*   **ディレクトリ探索の柔軟化**: 親ディレクトリを遡る `.fbqueue` 探索。
-*   **詳細サマリー**: `stat` での統計情報の表示。
+*   **Background Archiving**: Automatic `tar.gz` compression of old job records during idle periods.
+*   **Flexible Directory Discovery**: Support for recursive parent directory search for `.fbqueue` configuration.
+*   **Detailed Analytics**: Advanced statistics and status summaries via `fbqueue stat`.
 
 ---
-*Saturday, February 21, 2026 - Comprehensive Manual finalized.*
+*Monday, February 23, 2026 - Comprehensive Manual finalized for international release.*
