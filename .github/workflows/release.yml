@@ -4,22 +4,19 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch: # Enable manual triggering from Actions tab
 
 jobs:
   build:
-    name: Build for ${{ matrix.target }}
+    name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: fbqueue
             asset_name: fbqueue-linux-x64.tar.gz
             example_dir: linux
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: fbqueue.exe
             asset_name: fbqueue-windows-x64.zip
             example_dir: windows
 
@@ -36,10 +33,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir dist
-          cp target/release/${{ matrix.artifact_name }} .
+          cp target/release/fbqueue .
           tar -czvf dist/${{ matrix.asset_name }} \
-            ${{ matrix.artifact_name }} \
+            fbqueue \
             README.md \
+            MANUAL.md \
             examples/${{ matrix.example_dir }}
 
       - name: Package (Windows)
@@ -48,10 +46,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist
           Copy-Item "target\release\fbqueue.exe" .
-          Compress-Archive -Path "fbqueue.exe", "README.md", "examples\windows" -DestinationPath "dist\${{ matrix.asset_name }}"
+          Compress-Archive -Path "fbqueue.exe", "README.md", "MANUAL.md", "examples\windows" -DestinationPath "dist\${{ matrix.asset_name }}"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/${{ matrix.asset_name }}
         env:
