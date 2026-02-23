@@ -93,6 +93,8 @@ Queues are defined in the `config` file to control resource distribution and exe
 capacity: 16          # Global maximum capacity
 default_queue: batch
 inactivity_timeout: 300 # Seconds to wait before daemon auto-shutdown (default: 300)
+history_limit: 100      # Number of completed/failed jobs to keep in direct history (default: 100)
+archive_interval_days: 30 # Days between bundling pending archives into a tar.gz (default: 30)
 
 queue: batch
   capacity: 8         # Maximum capacity for this queue
@@ -138,6 +140,14 @@ Jobs are executed via their respective shells without modifying the original scr
 
 ## 8. CLI & Directive Reference
 
+### Monitoring & Management
+
+| Command | Option | Description |
+| :--- | :--- | :--- |
+| `stat` | `--style pbs` | Use PBS-compatible tabular output |
+| `stat` | `-H`, `--history [N]` | Show recent job history (last N jobs) |
+| `del` | `<job_id>` | Cancel a pending or running job |
+
 ### Job Submission Options (`fbqueue sub`)
 
 FBQueue supports many options common in HPC schedulers for easy migration.
@@ -171,9 +181,9 @@ FBQueue automatically maps embedded script directives to internal job parameters
 
 ## 9. Roadmap
 
-*   **Background Archiving**: Automatic `tar.gz` compression of old job records during idle periods.
-*   **Flexible Directory Discovery**: Support for recursive parent directory search for `.fbqueue` configuration.
-*   **Detailed Analytics**: Advanced statistics and status summaries via `fbqueue stat`.
+*   [x] **Background Archiving**: Automatic `tar.gz` compression of old job records during idle periods.
+*   *   **Flexible Directory Discovery**: Support for recursive parent directory search for `.fbqueue` configuration.
+*   *   **Detailed Analytics**: Advanced statistics and status summaries via `fbqueue stat`.
 
 ---
 *Monday, February 23, 2026 - Comprehensive Manual finalized for international release.*

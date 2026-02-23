@@ -45,7 +45,7 @@ fn print_help() {
     println!("FBQueue (Forblaze Queue) - Simple local job scheduler");
     println!("Usage:");
     println!("  fbqueue sub [options] <command> [args...] (alias: qsub)");
-    println!("  fbqueue stat [--style pbs|default]        (alias: qstat)");
+    println!("  fbqueue stat [--style pbs|default] [-H [N]] (alias: qstat)");
     println!("  fbqueue del <job_id>                      (alias: qdel)");
     println!("  fbqueue daemon <start|stop|status>");
     println!("\nOptions for sub:");

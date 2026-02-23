@@ -11,16 +11,27 @@ pub fn handle_stat(args: &[String], default_style: &str) {
     let conf = config::get_config();
     
     let mut style = default_style;
-    for i in 0..args.len() {
+    let mut show_history = None;
+    let mut i = 0;
+    while i < args.len() {
         if args[i] == "--style" && i + 1 < args.len() {
             style = &args[i+1];
+            i += 2;
+        } else if args[i] == "-H" || args[i] == "--history" {
+            if i + 1 < args.len() && args[i+1].parse::<usize>().is_ok() {
+                show_history = Some(args[i+1].parse::<usize>().unwrap_or(conf.history_limit));
+                i += 2;
+            } else {
+                show_history = Some(conf.history_limit);
+                i += 1;
+            }
+        } else {
+            i += 1;
         }
     }
 
     let new_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
     let running_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/running")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
-    let done_count = fs::read_dir(fbq_dir.join("queue/done")).map(|d| d.count()).unwrap_or(0);
-    let failed_count = fs::read_dir(fbq_dir.join("queue/failed")).map(|d| d.count()).unwrap_or(0);
 
     let mut used_caps = HashMap::new();
     let mut running_jobs = Vec::new();
@@ -46,31 +57,47 @@ pub fn handle_stat(args: &[String], default_style: &str) {
     if style == "pbs" {
         print_pbs_style(running_jobs, pending_jobs);
     } else {
-        println!("FBQueue Status (Global Capacity: {}/{}):", total_used, conf.global_capacity);
-        for q in &conf.queues {
-            let used = used_caps.get(&q.name).unwrap_or(&0);
-            println!("  Queue: {:<10} | Capacity: {:>2}/{:<2} | Priority: {:>3}", q.name, used, q.capacity, q.priority);
-        }
-        println!("  Done: {}, Failed: {}", done_count, failed_count);
-
-        let now = utils::get_now();
-        if has_pending {
-            println!("\nPending Jobs:");
-            for j in &pending_jobs {
-                let wait_reason = if let Some(sa) = j.start_after {
-                    if now < sa { format!("Wait until {}", utils::format_time(sa)) } else { "Capacity".to_string() }
-                } else if !j.depend.is_empty() { "Dependency".to_string() }
-                else { "Capacity".to_string() };
-                println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | STATUS: Pending ({})", j.id, j.name, j.user, j.queue, j.cost, wait_reason);
+        if let Some(limit) = show_history {
+            println!("Recent Job History (Last {}):", limit);
+            let mut history = Vec::new();
+            for dir in &["queue/done", "queue/failed"] {
+                if let Ok(entries) = fs::read_dir(fbq_dir.join(dir)) {
+                    for entry in entries.filter_map(|e| e.ok()) {
+                        if let Ok(j) = job::parse_job_file(&entry.path()) { history.push(j); }
+                    }
+                }
             }
-        }
-        if has_running {
-            println!("\nRunning Jobs:");
-            running_jobs.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
-            for j in running_jobs {
-                let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
-                let walltime_str = if let Some(wt) = j.walltime { format!("/{}", wt) } else { "".to_string() };
-                println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | TIME: {}{}s", j.id, j.name, j.user, j.queue, j.cost, elapsed, walltime_str);
+            history.sort_by(|a, b| b.id.parse::<usize>().unwrap_or(0).cmp(&a.id.parse::<usize>().unwrap_or(0)));
+            for j in history.iter().take(limit) {
+                let status = j.status.as_deref().unwrap_or("DONE");
+                println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | STATUS: {}", j.id, j.name, j.user, j.queue, status);
+            }
+        } else {
+            println!("FBQueue Status (Global Capacity: {}/{}):", total_used, conf.global_capacity);
+            for q in &conf.queues {
+                let used = used_caps.get(&q.name).unwrap_or(&0);
+                println!("  Queue: {:<10} | Capacity: {:>2}/{:<2} | Priority: {:>3}", q.name, used, q.capacity, q.priority);
+            }
+
+            let now = utils::get_now();
+            if has_pending {
+                println!("\nPending Jobs:");
+                for j in &pending_jobs {
+                    let wait_reason = if let Some(sa) = j.start_after {
+                        if now < sa { format!("Wait until {}", utils::format_time(sa)) } else { "Capacity".to_string() }
+                    } else if !j.depend.is_empty() { "Dependency".to_string() }
+                    else { "Capacity".to_string() };
+                    println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | STATUS: Pending ({})", j.id, j.name, j.user, j.queue, j.cost, wait_reason);
+                }
+            }
+            if has_running {
+                println!("\nRunning Jobs:");
+                running_jobs.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
+                for j in running_jobs {
+                    let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
+                    let walltime_str = if let Some(wt) = j.walltime { format!("/{}", wt) } else { "".to_string() };
+                    println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | TIME: {}{}s", j.id, j.name, j.user, j.queue, j.cost, elapsed, walltime_str);
+                }
             }
         }
     }

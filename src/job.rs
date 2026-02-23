@@ -23,6 +23,7 @@ pub struct Job {
     pub start_at: Option<u64>,
     pub _end_at: Option<u64>,
     pub _exit_code: Option<i32>,
+    pub status: Option<String>,
 }
 
 pub fn parse_job_file(path: &Path) -> io::Result<Job> {
@@ -45,25 +46,27 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
     let mut start_at = None;
     let mut end_at = None;
     let mut exit_code = None;
+    let mut status = None;
 
     for line in reader.lines() {
         let line = line?;
-        if line.starts_with("id: ") { id = line[4..].to_string(); }
-        else if line.starts_with("name: ") { name = line[6..].to_string(); }
-        else if line.starts_with("cmd: ") { cmd = line[5..].to_string(); }
-        else if line.starts_with("arg: ") { args.push(line[5..].to_string()); }
-        else if line.starts_with("cwd: ") { cwd = PathBuf::from(&line[5..]); }
-        else if line.starts_with("cost: ") { cost = line[6..].parse().unwrap_or(1); }
-        else if line.starts_with("stdout: ") { stdout = Some(line[8..].to_string()); }
-        else if line.starts_with("stderr: ") { stderr = Some(line[8..].to_string()); }
-        else if line.starts_with("user: ") { user = line[6..].to_string(); }
-        else if line.starts_with("queue: ") { queue = line[7..].to_string(); }
-        else if line.starts_with("walltime: ") { walltime = Some(line[10..].parse().unwrap_or(0)); }
+        if line.starts_with("id: ") { id = line[4..].trim().to_string(); }
+        else if line.starts_with("name: ") { name = line[6..].trim().to_string(); }
+        else if line.starts_with("cmd: ") { cmd = line[5..].trim().to_string(); }
+        else if line.starts_with("arg: ") { args.push(line[5..].trim().to_string()); }
+        else if line.starts_with("cwd: ") { cwd = PathBuf::from(line[5..].trim()); }
+        else if line.starts_with("cost: ") { cost = line[6..].trim().parse().unwrap_or(1); }
+        else if line.starts_with("stdout: ") { stdout = Some(line[8..].trim().to_string()); }
+        else if line.starts_with("stderr: ") { stderr = Some(line[8..].trim().to_string()); }
+        else if line.starts_with("user: ") { user = line[6..].trim().to_string(); }
+        else if line.starts_with("queue: ") { queue = line[7..].trim().to_string(); }
+        else if line.starts_with("walltime: ") { walltime = Some(line[10..].trim().parse().unwrap_or(0)); }
         else if line.starts_with("depend: ") { depend = line[8..].split(',').map(|s| s.trim().to_string()).collect(); }
-        else if line.starts_with("start_after: ") { start_after = Some(line[13..].parse().unwrap_or(0)); }
-        else if line.starts_with("start_at: ") { start_at = Some(line[10..].parse().unwrap_or(0)); }
-        else if line.starts_with("end_at: ") { end_at = Some(line[8..].parse().unwrap_or(0)); }
-        else if line.starts_with("exit_code: ") { exit_code = Some(line[11..].parse().unwrap_or(0)); }
+        else if line.starts_with("start_after: ") { start_after = Some(line[13..].trim().parse().unwrap_or(0)); }
+        else if line.starts_with("start_at: ") { start_at = Some(line[10..].trim().parse().unwrap_or(0)); }
+        else if line.starts_with("end_at: ") { end_at = Some(line[8..].trim().parse().unwrap_or(0)); }
+        else if line.starts_with("exit_code: ") { exit_code = Some(line[11..].trim().parse().unwrap_or(0)); }
+        else if line.starts_with("status: ") { status = Some(line[8..].trim().to_string()); }
         else if line.starts_with("env: ") {
             let part = &line[5..];
             if let Some(pos) = part.find('=') {
@@ -72,7 +75,7 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
         }
     }
     if name.is_empty() { name = cmd.clone(); }
-    Ok(Job { id, name, cmd, args, cwd, envs, cost, stdout, stderr, user, queue, walltime, depend, start_after, start_at, _end_at: end_at, _exit_code: exit_code })
+    Ok(Job { id, name, cmd, args, cwd, envs, cost, stdout, stderr, user, queue, walltime, depend, start_after, start_at, _end_at: end_at, _exit_code: exit_code, status })
 }
 
 pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<&str>, 

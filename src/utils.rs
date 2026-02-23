@@ -13,7 +13,7 @@ pub fn get_fbq_dir() -> PathBuf {
 
 pub fn init_dirs() {
     let fbq_dir = get_fbq_dir();
-    let subdirs = ["queue/new", "queue/running", "queue/done", "queue/failed", "queue/cancel", "logs", "run"];
+    let subdirs = ["queue/new", "queue/running", "queue/done", "queue/failed", "queue/cancel", "archive/pending", "logs", "run"];
     for subdir in &subdirs {
         let path = fbq_dir.join(subdir);
         if !path.exists() {
@@ -34,6 +34,12 @@ default_queue: batch
 
 # Inactivity timeout in seconds before the daemon auto-shuts down
 inactivity_timeout: 300
+
+# Number of completed/failed jobs to keep in direct history (stat -H)
+history_limit: 100
+
+# Days between bundling pending archives into a tar.gz
+archive_interval_days: 30
 
 # Queue definitions
 queue: batch

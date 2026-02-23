@@ -39,7 +39,8 @@ fbqueue sub my_script.ps1
 
 ### Status & Management
 ```bash
-fbqueue stat          # Check job status and resource usage
+fbqueue stat          # Check active jobs and resource usage
+fbqueue stat -H       # Show recent job history (last 100 jobs)
 fbqueue del <job_id>  # Delete/Cancel a job
 fbqueue sub -a +1h ./task.sh  # Schedule a job to start in 1 hour
 ```

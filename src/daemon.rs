@@ -7,6 +7,7 @@ use crate::utils;
 use crate::job;
 use crate::config;
 use std::path::{Path, PathBuf};
+use std::io::Write;
 
 #[cfg(unix)]
 unsafe extern "C" { fn setsid() -> i32; }
@@ -71,6 +72,9 @@ pub fn run_daemon() {
                     let (_, mut child, _, _, _, _) = running_jobs.remove(pos);
                     let _ = child.kill();
                     let _ = child.wait();
+                    if let Ok(mut f) = fs::OpenOptions::new().append(true).open(fbq_dir.join("queue/running").join(entry.file_name())) {
+                        let _ = writeln!(f, "status: CANCELLED");
+                    }
                     fs::rename(fbq_dir.join("queue/running").join(entry.file_name()), fbq_dir.join("queue/failed").join(entry.file_name())).ok();
                 }
                 let _ = fs::remove_file(entry.path());
@@ -88,8 +92,7 @@ pub fn run_daemon() {
                     let fname = format!("{}.job", job_id);
                     let job_path = fbq_dir.join("queue/running").join(&fname);
                     if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&job_path) {
-                        use std::io::Write;
-                        let _ = writeln!(f, "exit_reason: walltime_exceeded\nend_at: {}", now);
+                        let _ = writeln!(f, "exit_reason: walltime_exceeded\nend_at: {}\nstatus: TIMEOUT", now);
                     }
                     fs::rename(job_path, fbq_dir.join("queue/failed").join(&fname)).ok();
                     continue;
@@ -105,12 +108,12 @@ pub fn run_daemon() {
                 let fname = format!("{}.job", id);
                 let rpath = fbq_dir.join("queue/running").join(&fname);
                 let exit_code = status.code().unwrap_or(-1);
+                let dest_dir = if status.success() { "queue/done" } else { "queue/failed" };
+                let status_str = if status.success() { "DONE" } else { "FAILED" };
                 if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&rpath) {
-                    use std::io::Write;
-                    let _ = writeln!(f, "end_at: {}\nexit_code: {}", now, exit_code);
+                    let _ = writeln!(f, "end_at: {}\nexit_code: {}\nstatus: {}", now, exit_code, status_str);
                 }
-                let dest = if status.success() { "queue/done" } else { "queue/failed" };
-                fs::rename(rpath, fbq_dir.join(dest).join(&fname)).ok();
+                fs::rename(rpath, fbq_dir.join(dest_dir).join(&fname)).ok();
             } else { i += 1; }
         }
 
@@ -149,7 +152,6 @@ pub fn run_daemon() {
                     let rpath = fbq_dir.join("queue/running").join(entry.file_name());
                     if fs::rename(entry.path(), &rpath).is_ok() {
                         if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&rpath) {
-                            use std::io::Write;
                             let _ = writeln!(f, "start_at: {}", now);
                         }
 
@@ -209,6 +211,11 @@ pub fn run_daemon() {
 
         if running_jobs.is_empty() && fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.count()).unwrap_or(0) == 0 { 
             idle_seconds += 1; 
+            if idle_seconds % 10 == 0 {
+                // Perform archiving and pruning during idle time
+                prune_history(&fbq_dir, conf.history_limit);
+                bundle_archives(&fbq_dir, conf.archive_interval_days);
+            }
         } else { 
             idle_seconds = 0; 
         }
@@ -217,5 +224,67 @@ pub fn run_daemon() {
             break; 
         }
         thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn prune_history(fbq_dir: &Path, limit: usize) {
+    let mut entries = Vec::new();
+    for dir in &["queue/done", "queue/failed"] {
+        if let Ok(read_dir) = fs::read_dir(fbq_dir.join(dir)) {
+            for entry in read_dir.filter_map(|e| e.ok()) {
+                let id = entry.file_name().to_str().unwrap_or("0").trim_end_matches(".job").parse::<usize>().unwrap_or(0);
+                entries.push((id, entry.path()));
+            }
+        }
+    }
+    if entries.len() > limit {
+        entries.sort_by_key(|e| e.0);
+        let to_archive = entries.len() - limit;
+        for i in 0..to_archive {
+            let path = &entries[i].1;
+            let dest = fbq_dir.join("archive/pending").join(path.file_name().unwrap());
+            fs::rename(path, dest).ok();
+        }
+    }
+}
+
+fn bundle_archives(fbq_dir: &Path, interval_days: u64) {
+    let last_archive_file = fbq_dir.join("run/last_archive");
+    let now = utils::get_now();
+    let last_ts = fs::read_to_string(&last_archive_file).ok().and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0);
+    
+    if now - last_ts > interval_days * 86400 {
+        let pending_dir = fbq_dir.join("archive/pending");
+        if fs::read_dir(&pending_dir).map(|d| d.count()).unwrap_or(0) > 0 {
+            let timestamp = utils::format_time(now).replace(' ', "_").replace(':', "").replace('-', "");
+            let archive_name = format!("archive_{}.tar.gz", timestamp);
+            let archive_path = fbq_dir.join("archive").join(&archive_name);
+            
+            // Use system tar
+            #[cfg(unix)]
+            let status = process::Command::new("tar")
+                .arg("-czf").arg(&archive_path)
+                .arg("-C").arg(pending_dir.display().to_string())
+                .arg(".")
+                .status();
+            
+            #[cfg(windows)]
+            let status = process::Command::new("tar")
+                .arg("-czf").arg(&archive_path)
+                .arg("-C").arg(pending_dir.display().to_string())
+                .arg(".")
+                .status();
+
+            if status.map(|s| s.success()).unwrap_or(false) {
+                // Clear pending directory after successful compression
+                if let Ok(entries) = fs::read_dir(&pending_dir) {
+                    for entry in entries.filter_map(|e| e.ok()) {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+                let _ = fs::write(last_archive_file, now.to_string());
+                println!("Archived pending jobs to {}", archive_name);
+            }
+        }
     }
 }
