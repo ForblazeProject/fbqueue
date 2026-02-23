@@ -31,6 +31,7 @@ FBQueue is designed to provide robust job scheduling without the administrative 
         1.  No jobs are currently executing (the `running/` directory is empty).
         2.  No jobs are waiting in the queue (the `new/` directory is empty).
     - **Behavior**: If a new job is submitted or a scheduled job is waiting for its start time (remaining in the `new/` directory), the daemon stays active. This ensures that scheduled tasks are never missed due to premature daemon termination.
+*   **Zero Management (Transparent Daemon)**: The daemon is launched on-demand by any CLI command (`sub`, `stat`, `del`) if it is not already running. Combined with the auto-shutdown feature, users never need to manually start or stop the background process; the tool behaves like a standard CLI utility.
 *   **Transparency**: All job states are visible and manageable directly through the file system, allowing for easy inspection and debugging.
 *   **Robustness & Resilience**: Includes automatic recovery for interrupted jobs following a daemon restart or system reboot.
 

@@ -14,7 +14,7 @@ FBQueue addresses the gap between manual script execution and heavy enterprise s
     - **No Network Ports**: Operates entirely via the file system. No firewall rules or port exposures required.
     - **No Database**: Uses a transparent file-based state management system.
     - **Auto-Shutdown Daemon**: The daemon automatically terminates after a configurable period of inactivity (default 300s). It only shuts down when both the running and pending queues are completely empty.
-- **Zero-Config Deployment**: A single, dependency-free binary that runs in user-space.
+- **Zero-Config & Zero Management**: A single, dependency-free binary that runs in user-space. The daemon starts automatically on any command (`sub`, `stat`, `del`) and stops when idle—no manual daemon management required.
 
 ## 🎨 Key Features
 

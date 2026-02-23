@@ -87,6 +87,7 @@ pub fn handle_del(args: &[String]) {
     if new_path.exists() { fs::rename(new_path, cancel_path).ok(); println!("Job {} cancelled.", job_id); }
     else if running_path.exists() { fs::write(cancel_path, "").ok(); println!("Job {} marked for cancellation.", job_id); }
     else { println!("Job {} not found.", job_id); }
+    daemon::ensure_daemon();
 }
 
 pub fn handle_daemon(args: &[String]) {
