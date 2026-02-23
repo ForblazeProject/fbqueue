@@ -112,9 +112,12 @@ fbqueue sub -hold_jid 123 ./next_task.sh
 ```
 
 ### Delayed Start (`-a`)
-Schedules a job to start after a specific absolute time (UNIX timestamp).
+Schedules a job to start after a specific time. Supports relative time (`+1h`, `+30m`), time today (`18:00`), absolute date (`2026-02-23 18:00`), or UNIX timestamp.
+
 ```bash
-fbqueue sub -a 1771766817 ./future_task.sh
+fbqueue sub -a +1h ./future_task.sh
+fbqueue sub -a 18:00 ./tonight_task.sh
+fbqueue sub -a "2026-02-24 09:00:00" ./tomorrow_task.sh
 ```
 
 ## 7. Windows Implementation and Guidelines
@@ -140,7 +143,7 @@ FBQueue supports many options common in HPC schedulers for easy migration.
 | `-q`, `--queue` | `queue` | Target queue name | `default_queue` |
 | `-W` | `walltime` | Execution time limit (`HH:MM:SS`) | Unlimited |
 | `-hold_jid` | `depend` | Wait for completion of job ID(s) | - |
-| `-a` | `start_after` | Scheduled start time (`UNIX TIMESTAMP`) | Immediate |
+| `-a` | `start_after` | Scheduled start time (ts, +1h, 18:00) | Immediate |
 | `-o` | `stdout` | Redirect path for stdout | `<cwd>/<name>.o<id>` |
 | `-e` | `stderr` | Redirect path for stderr | `<cwd>/<name>.e<id>` |
 | `--range` | - | Submit range of jobs (`N-M`) | - |

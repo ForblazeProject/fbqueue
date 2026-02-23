@@ -41,6 +41,7 @@ fbqueue sub my_script.ps1
 ```bash
 fbqueue stat          # Check job status and resource usage
 fbqueue del <job_id>  # Delete/Cancel a job
+fbqueue sub -a +1h ./task.sh  # Schedule a job to start in 1 hour
 ```
 
 ## 📂 Environment & Project Isolation

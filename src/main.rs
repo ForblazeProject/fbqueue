@@ -54,7 +54,7 @@ fn print_help() {
     println!("  -N NAME         Job name");
     println!("  -W HH:MM:SS     Walltime limit");
     println!("  -hold_jid ID    Wait for job ID to finish");
-    println!("  -a TIMESTAMP    Start after UNIX timestamp");
+    println!("  -a TIME         Start after TIME (UNIX ts, +1h, 18:00, or YYYY-MM-DD HH:MM)");
     println!("  -o OUT          Standard output file");
     println!("  -e ERR          Standard error file");
     println!("  --range N-M     Batch range expansion");

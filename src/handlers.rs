@@ -38,7 +38,7 @@ pub fn handle_sub(args: &[String]) {
             cli_depend = Some(args[start_idx+1].to_string());
             start_idx += 2;
         } else if arg == "-a" && start_idx + 1 < args.len() {
-            cli_start_after = Some(args[start_idx+1].parse().unwrap_or(0));
+            cli_start_after = Some(utils::parse_time(&args[start_idx+1]));
             start_idx += 2;
         } else if arg == "-o" && start_idx + 1 < args.len() {
             cli_out = Some(args[start_idx+1].to_string());

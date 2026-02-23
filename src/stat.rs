@@ -58,7 +58,7 @@ pub fn handle_stat(args: &[String], default_style: &str) {
             println!("\nPending Jobs:");
             for j in &pending_jobs {
                 let wait_reason = if let Some(sa) = j.start_after {
-                    if now < sa { format!("Wait until {}", sa) } else { "Capacity".to_string() }
+                    if now < sa { format!("Wait until {}", utils::format_time(sa)) } else { "Capacity".to_string() }
                 } else if !j.depend.is_empty() { "Dependency".to_string() }
                 else { "Capacity".to_string() };
                 println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | STATUS: Pending ({})", j.id, j.name, j.user, j.queue, j.cost, wait_reason);
