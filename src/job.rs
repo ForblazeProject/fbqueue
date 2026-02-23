@@ -133,6 +133,8 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
                                     if let Some(pos) = arg.find("ppn=") {
                                         script_cost = arg[pos+4..].parse().unwrap_or(script_cost);
                                     }
+                                } else if arg.starts_with("ncpus=") {
+                                    script_cost = arg[6..].parse().unwrap_or(script_cost);
                                 }
                                 i += 2;
                             }

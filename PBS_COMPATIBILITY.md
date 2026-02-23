@@ -38,6 +38,7 @@ FBQueue respects your existing job scripts. You don't need to rewrite them. It a
 | `#PBS -N <name>` | Sets the job display name |
 | `#PBS -q <queue>` | Routes the job to a specific FBQueue queue |
 | `#PBS -l nodes=1:ppn=N` | Maps `ppn` to the job's resource `cost` |
+| `#PBS -l ncpus=N` | Maps `ncpus` to the job's resource `cost` |
 | `#$ -pe smp N` | Maps `N` to the job's resource `cost` |
 | `#PBS -o <path>` | Redirects standard output |
 | `#PBS -e <path>` | Redirects standard error |

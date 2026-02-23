@@ -172,7 +172,7 @@ FBQueue automatically maps embedded script directives to internal job parameters
 | Feature | External Notation (Example) | Internal Parameter |
 | :--- | :--- | :--- |
 | **Job Name** | `#PBS -N name`, `#SBATCH -J name` | **`name`** |
-| **Resource/Cost** | `#$ -pe smp 4`, `#SBATCH -c 4` | **`cost`** |
+| **Resource/Cost** | `#$ -pe smp 4`, `#SBATCH -c 4`, `#PBS -l ncpus=4` | **`cost`** |
 | **Target Queue** | `#PBS -q express`, `#SBATCH -p express` | **`queue`** |
 | **Stdout Path** | `#$ -o /path/to/log`, `#SBATCH -o ...` | **`stdout`** |
 | **Stderr Path** | `#PBS -e /path/to/err`, `#SBATCH -e ...` | **`stderr`** |
