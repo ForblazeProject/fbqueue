@@ -20,6 +20,28 @@ pub fn init_dirs() {
             fs::create_dir_all(&path).ok();
         }
     }
+
+    let config_path = fbq_dir.join("config");
+    if !config_path.exists() {
+        let cpu_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(8);
+        let default_config = format!(
+r#"# FBQueue Configuration
+# Global maximum capacity (e.g., number of CPU cores or GPU units)
+capacity: {0}
+
+# Default queue name
+default_queue: batch
+
+# Inactivity timeout in seconds before the daemon auto-shuts down
+inactivity_timeout: 300
+
+# Queue definitions
+queue: batch
+  capacity: {0}
+  priority: 10
+"#, cpu_count);
+        fs::write(config_path, default_config).ok();
+    }
 }
 
 pub fn get_now() -> u64 {
