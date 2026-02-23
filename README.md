@@ -1,7 +1,5 @@
 # FBQueue (Forblaze Queue)
 
-![FBQueue Logo Placeholder](https://via.placeholder.com/150/0000FF/FFFFFF?text=FBQueue)
-
 FBQueue is a lightweight, robust local job scheduler written in Rust. It is designed for researchers and developers who need efficient job management on shared computing resources without the complexity of system-wide installations.
 
 ## 💡 Why FBQueue?
