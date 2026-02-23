@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration};
 use crate::utils;
 use crate::job;
+use crate::config;
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -60,7 +61,7 @@ pub fn run_daemon() {
     let mut idle_seconds = 0;
 
     loop {
-        let config = utils::get_config();
+        let conf = config::get_config();
         let now = utils::get_now();
         
         if let Ok(entries) = fs::read_dir(fbq_dir.join("queue/cancel")) {
@@ -128,7 +129,7 @@ pub fn run_daemon() {
                     if let Some(sa) = j.start_after {
                         if now < sa { continue; }
                     }
-                    let q_prio = config.queues.iter().find(|q| q.name == j.queue).map(|q| q.priority).unwrap_or(0);
+                    let q_prio = conf.queues.iter().find(|q| q.name == j.queue).map(|q| q.priority).unwrap_or(0);
                     let numeric_id = j.id.parse::<usize>().unwrap_or(0);
                     job_list.push((entry, j, q_prio, numeric_id));
                 }
@@ -137,12 +138,12 @@ pub fn run_daemon() {
             job_list.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.3.cmp(&b.3)));
 
             for (entry, j, _, _) in job_list {
-                let q_limit = config.queues.iter().find(|q| q.name == j.queue).map(|q| q.capacity).unwrap_or(1);
+                let q_limit = conf.queues.iter().find(|q| q.name == j.queue).map(|q| q.capacity).unwrap_or(1);
                 let q_used: usize = running_jobs.iter().filter(|(_, _, _, qn, _, _)| qn == &j.queue).map(|(_, _, c, _, _, _)| *c).sum();
                 let global_used: usize = running_jobs.iter().map(|(_, _, c, _, _, _)| *c).sum();
 
                 let can_run_queue = (q_used == 0) || (q_used + j.cost <= q_limit);
-                let can_run_global = (global_used == 0) || (global_used + j.cost <= config.global_capacity);
+                let can_run_global = (global_used == 0) || (global_used + j.cost <= conf.global_capacity);
 
                 if can_run_queue && can_run_global {
                     let rpath = fbq_dir.join("queue/running").join(entry.file_name());

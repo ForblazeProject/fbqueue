@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 use crate::utils;
+use crate::config;
 
 pub struct Job {
     pub id: String,
@@ -84,7 +85,6 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let raw_cmd = replace(cmd_tmpl);
     let mut cmd = raw_cmd.clone();
     
-    // Path auto-completion
     if !cmd.contains('/') && !cmd.contains('\\') {
         let p = cwd.join(&cmd);
         if p.is_file() {
@@ -94,8 +94,9 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     }
 
     let job_args: Vec<_> = args_tmpl.iter().map(|s| replace(s)).collect();
-    let config = utils::get_config();
-    let def_q = config.default_queue;
+    
+    let conf = config::get_config();
+    let def_q = conf.default_queue;
     let mut script_cost = 1;
     let mut script_name = String::new();
     let mut script_out = None;
