@@ -10,7 +10,7 @@ use std::process;
 fn main() {
     let args: Vec<String> = env::args().collect();
     let program_name = Path::new(&args[0])
-        .file_name()
+        .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("fbqueue");
 

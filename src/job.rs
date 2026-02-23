@@ -84,11 +84,12 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let raw_cmd = replace(cmd_tmpl);
     let mut cmd = raw_cmd.clone();
     
-    // Path auto-completion: only prefix with ./ if it exists in cwd and has no separators
+    // Path auto-completion
     if !cmd.contains('/') && !cmd.contains('\\') {
         let p = cwd.join(&cmd);
         if p.is_file() {
-            cmd = format!("./{}", cmd);
+            #[cfg(unix)] { cmd = format!("./{}", cmd); }
+            #[cfg(windows)] { cmd = format!(".\\{}", cmd); }
         }
     }
 
