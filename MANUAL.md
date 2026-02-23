@@ -26,7 +26,11 @@ FBQueue is designed to provide robust job scheduling without the administrative 
 *   **Security-First Architecture**:
     - **No Network Ports**: Operates strictly via the file system. It avoids exposing any network surface, making it ideal for restricted corporate or research environments.
     - **No Database Engine**: Uses a transparent, file-based state management system. No complex database setup or maintenance is required.
-*   **Resource Efficiency (Auto-Shutdown)**: The daemon is a transient process. It automatically terminates after a period of inactivity (default 300s, configurable via `inactivity_timeout`) to conserve system resources.
+*   **Resource Efficiency (Auto-Shutdown)**: The daemon is a transient process designed to conserve system resources. It automatically terminates after a configurable period of inactivity (`inactivity_timeout`, default: 300s).
+    - **Trigger Conditions**: The inactivity countdown begins **only** when both of the following conditions are met:
+        1.  No jobs are currently executing (the `running/` directory is empty).
+        2.  No jobs are waiting in the queue (the `new/` directory is empty).
+    - **Behavior**: If a new job is submitted or a scheduled job is waiting for its start time (remaining in the `new/` directory), the daemon stays active. This ensures that scheduled tasks are never missed due to premature daemon termination.
 *   **Transparency**: All job states are visible and manageable directly through the file system, allowing for easy inspection and debugging.
 *   **Robustness & Resilience**: Includes automatic recovery for interrupted jobs following a daemon restart or system reboot.
 
