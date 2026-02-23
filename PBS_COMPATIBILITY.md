@@ -90,4 +90,12 @@ Job id            Name             User              Time Use S Queue
 - **Lightweight**: Get the benefits of a robust queue manager without the overhead of complex system-wide installations.
 
 ---
+### Author
+**Forblaze Project**  
+Website: [https://forblaze-works.com/en/](https://forblaze-works.com/en/)
+
+### License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
 *FBQueue: Honoring the heritage of HPC scheduling while providing modern, lightweight local execution.*

@@ -186,4 +186,9 @@ FBQueue automatically maps embedded script directives to internal job parameters
 *   *   **Detailed Analytics**: Advanced statistics and status summaries via `fbqueue stat`.
 
 ---
-*Monday, February 23, 2026 - Comprehensive Manual finalized for international release.*
+### Author
+**Forblaze Project**  
+Website: [https://forblaze-works.com/en/](https://forblaze-works.com/en/)
+
+### License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
