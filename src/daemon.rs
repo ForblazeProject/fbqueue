@@ -141,7 +141,6 @@ pub fn run_daemon() {
                 let q_used: usize = running_jobs.iter().filter(|(_, _, _, qn, _, _)| qn == &j.queue).map(|(_, _, c, _, _, _)| *c).sum();
                 let global_used: usize = running_jobs.iter().map(|(_, _, c, _, _, _)| *c).sum();
 
-                // Check capacity. Allow the first job even if it exceeds limit to avoid deadlock.
                 let can_run_queue = (q_used == 0) || (q_used + j.cost <= q_limit);
                 let can_run_global = (global_used == 0) || (global_used + j.cost <= config.global_capacity);
 
@@ -182,9 +181,16 @@ pub fn run_daemon() {
 
                             #[cfg(windows)]
                             let mut child_cmd = if is_file {
-                                let mut c = process::Command::new("cmd");
-                                c.arg("/c").arg(&j.cmd);
-                                c
+                                let cmd_lower = j.cmd.to_lowercase();
+                                if cmd_lower.ends_with(".ps1") {
+                                    let mut c = process::Command::new("powershell");
+                                    c.arg("-ExecutionPolicy").arg("Bypass").arg("-File").arg(&j.cmd);
+                                    c
+                                } else {
+                                    let mut c = process::Command::new("cmd");
+                                    c.arg("/c").arg(&j.cmd);
+                                    c
+                                }
                             } else {
                                 process::Command::new(&j.cmd)
                             };
