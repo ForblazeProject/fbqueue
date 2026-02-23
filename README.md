@@ -24,6 +24,30 @@ FBQueue addresses the gap between manual script execution and heavy enterprise s
 
 ## 🚀 Quick Start
 
+### Installation
+
+#### Linux
+Download the pre-built static binary and place it in your `$PATH`:
+
+```bash
+# 1. Download and extract
+wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.0/fbqueue-linux-x64.tar.gz
+tar -xzvf fbqueue-linux-x64.tar.gz
+
+# 2. Move to your bin directory
+mkdir -p ~/bin
+mv fbqueue ~/bin/
+
+# 3. (Optional) Create PBS-style symbolic links
+ln -s ~/bin/fbqueue ~/bin/qsub
+ln -s ~/bin/fbqueue ~/bin/qstat
+ln -s ~/bin/fbqueue ~/bin/qdel
+```
+
+#### Windows
+1. Download `fbqueue-windows-x64.zip` from [Releases](https://github.com/ForblazeProject/fbqueue/releases).
+2. Extract the ZIP and move `fbqueue.exe` to a folder in your `Path`.
+
 ### Job Submission (`sub`)
 FBQueue automatically handles path prefixes and shell selection.
 
