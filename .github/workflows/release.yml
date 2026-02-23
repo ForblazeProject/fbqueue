@@ -46,6 +46,7 @@ jobs:
             fbqueue \
             README.md \
             MANUAL.md \
+            PBS_COMPATIBILITY.md \
             examples/${{ matrix.example_dir }}
 
       - name: Package (Windows)
