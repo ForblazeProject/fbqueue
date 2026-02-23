@@ -40,6 +40,9 @@ pub fn handle_stat(args: &[String], default_style: &str) {
         if let Ok(j) = job::parse_job_file(&entry.path()) { pending_jobs.push(j); }
     }
 
+    let has_pending = !pending_jobs.is_empty();
+    let has_running = !running_entries.is_empty();
+
     if style == "pbs" {
         print_pbs_style(running_jobs, pending_jobs);
     } else {
@@ -51,9 +54,9 @@ pub fn handle_stat(args: &[String], default_style: &str) {
         println!("  Done: {}, Failed: {}", done_count, failed_count);
 
         let now = utils::get_now();
-        if !pending_jobs.is_empty() {
+        if has_pending {
             println!("\nPending Jobs:");
-            for j in pending_jobs {
+            for j in &pending_jobs {
                 let wait_reason = if let Some(sa) = j.start_after {
                     if now < sa { format!("Wait until {}", sa) } else { "Capacity".to_string() }
                 } else if !j.depend.is_empty() { "Dependency".to_string() }
@@ -61,7 +64,7 @@ pub fn handle_stat(args: &[String], default_style: &str) {
                 println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | STATUS: Pending ({})", j.id, j.name, j.user, j.queue, j.cost, wait_reason);
             }
         }
-        if !running_jobs.is_empty() {
+        if has_running {
             println!("\nRunning Jobs:");
             running_jobs.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
             for j in running_jobs {
@@ -71,8 +74,9 @@ pub fn handle_stat(args: &[String], default_style: &str) {
             }
         }
     }
-    // Ensure daemon is running if there are pending jobs
-    if !pending_jobs.is_empty() || !running_entries.is_empty() {
+    
+    // Ensure daemon is running if there are pending or running jobs
+    if has_pending || has_running {
         daemon::ensure_daemon();
     }
 }
