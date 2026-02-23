@@ -36,7 +36,7 @@ FBQueue operates within the directory specified by the `FBQUEUE_DIR` environment
 
 ### Personal vs. Shared Usage
 - **Personal Mode (Default)**: Using `~/.fbqueue/` ensures your job queue is private and doesn't interfere with other users.
-- **Shared Mode**: By setting `FBQUEUE_DIR` to a shared folder (e.g., a common NFS or SMB path), multiple users can access the same scheduler instance, enabling team-based job coordination on a single machine.
+- **Shared Mode**: Multiple users on a single machine can share a common queue by setting `FBQUEUE_DIR` to a **local shared directory**. Note that using network-mounted drives (NFS, SMB, etc.) is highly discouraged as it may impact performance and result in file-locking latency.
 
 ```
 .fbqueue/
@@ -125,7 +125,7 @@ The appropriate interpreter is automatically selected based on the file extensio
 - **`.ps1`**: Executed via `powershell -ExecutionPolicy Bypass -File`.
 
 ### Secure Script Execution
-Jobs are executed via their respective shells without modifying the original script's file permissions (`+x` on Linux/macOS). This ensures script integrity and avoids security issues in shared environments.
+Jobs are executed via their respective shells without modifying the original script's file permissions (`+x` on Linux). This ensures script integrity and avoids security issues in shared environments.
 
 ## 8. CLI & Directive Reference
 

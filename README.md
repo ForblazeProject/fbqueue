@@ -47,10 +47,11 @@ fbqueue del <job_id>  # Delete/Cancel a job
 
 By default, FBQueue stores its data in `~/.fbqueue/` (the user's home directory), keeping your queue private. 
 
-For team collaboration or project-specific management, you can point multiple users to the same directory using the `FBQUEUE_DIR` environment variable, enabling a shared lightweight scheduler for a specific workgroup:
+For team collaboration on a single machine, you can point multiple users to a **local shared directory** using the `FBQUEUE_DIR` environment variable. Note that using network-mounted drives (NFS/SMB) is discouraged due to potential file-locking latency:
 
 ```bash
-export FBQUEUE_DIR=/path/to/shared_project/.fbqueue
+# Example: Shared local project directory
+export FBQUEUE_DIR=/var/lib/fbqueue/project_a
 fbqueue sub ./calc.sh
 ```
 
