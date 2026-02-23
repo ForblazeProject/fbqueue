@@ -207,9 +207,15 @@ pub fn run_daemon() {
             }
         }
 
-        if running_jobs.is_empty() && fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.count()).unwrap_or(0) == 0 { idle_seconds += 1; }
-        else { idle_seconds = 0; }
-        if idle_seconds > 300 { let _ = fs::remove_file(&lock_file); break; }
+        if running_jobs.is_empty() && fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.count()).unwrap_or(0) == 0 { 
+            idle_seconds += 1; 
+        } else { 
+            idle_seconds = 0; 
+        }
+        if idle_seconds > conf.inactivity_timeout { 
+            let _ = fs::remove_file(&lock_file); 
+            break; 
+        }
         thread::sleep(Duration::from_secs(1));
     }
 }

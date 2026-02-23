@@ -10,6 +10,7 @@ pub struct QueueConfig {
 pub struct Config {
     pub default_queue: String,
     pub global_capacity: usize,
+    pub inactivity_timeout: u64,
     pub queues: Vec<QueueConfig>,
 }
 
@@ -19,18 +20,21 @@ pub fn get_config() -> Config {
     
     let mut default_queue = "default".to_string();
     let mut global_capacity = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(8);
+    let mut inactivity_timeout = 300;
     let mut queues = Vec::new();
 
     if let Ok(content) = fs::read_to_string(config_path) {
         let mut current_queue: Option<QueueConfig> = None;
         for line in content.lines() {
             let is_indented = line.starts_with(' ') || line.starts_with('\t');
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { continue; }
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
             
-            if line.starts_with("default_queue: ") {
-                default_queue = line[15..].trim().to_string();
-            } else if line.starts_with("queue: ") {
+            if trimmed.starts_with("default_queue: ") {
+                default_queue = trimmed[15..].trim().to_string();
+            } else if trimmed.starts_with("inactivity_timeout: ") {
+                inactivity_timeout = trimmed[20..].trim().parse().unwrap_or(300);
+            } else if trimmed.starts_with("queue: ") {
                 if let Some(q) = current_queue.take() {
                     add_or_replace_queue(&mut queues, q);
                 }
@@ -64,7 +68,7 @@ pub fn get_config() -> Config {
         });
     }
 
-    Config { default_queue, global_capacity, queues }
+    Config { default_queue, global_capacity, inactivity_timeout, queues }
 }
 
 fn add_or_replace_queue(queues: &mut Vec<QueueConfig>, q: QueueConfig) {

@@ -34,13 +34,13 @@ pub fn format_time(ts: u64) -> String {
     let mut days = rem;
     let mut year = 1970;
     loop {
-        let leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
         let y_days = if leap { 366 } else { 365 };
         if days < y_days { break; }
         days -= y_days;
         year += 1;
     }
-    let leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let mut m_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     if leap { m_days[1] = 29; }
     let mut month = 1;
@@ -74,13 +74,13 @@ pub fn parse_time(s: &str) -> u64 {
         let mut days = rem;
         let mut year = 1970;
         loop {
-            let leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+            let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
             let y_days = if leap { 366 } else { 365 };
             if days < y_days { break; }
             days -= y_days;
             year += 1;
         }
-        let leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
         let mut m_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         if leap { m_days[1] = 29; }
         let mut month = 1;
@@ -110,10 +110,10 @@ pub fn parse_time(s: &str) -> u64 {
         // Convert back to timestamp
         let mut total_days = 0u64;
         for yr in 1970..y {
-            let leap = (yr % 4 == 0 && (yr % 100 != 0 || yr % 400 == 0));
+            let leap = yr % 4 == 0 && (yr % 100 != 0 || yr % 400 == 0);
             total_days += if leap { 366 } else { 365 };
         }
-        let leap = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0));
+        let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
         let mut m_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
         if leap { m_days[1] = 29; }
         for m in 1..mo { total_days += m_days[m as usize - 1] as u64; }
