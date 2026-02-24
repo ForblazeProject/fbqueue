@@ -31,7 +31,7 @@ Download the pre-built static binary and place it in your `$PATH`:
 
 ```bash
 # 1. Download and extract
-wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.0/fbqueue-linux-x64.tar.gz
+wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.1/fbqueue-linux-x64.tar.gz
 tar -xzvf fbqueue-linux-x64.tar.gz
 
 # 2. Move to your bin directory
@@ -78,6 +78,19 @@ For team collaboration on a single machine, you can point multiple users to a **
 export FBQUEUE_DIR=/var/lib/fbqueue/project_a
 fbqueue sub ./calc.sh
 ```
+
+## 📜 Change Log
+
+### v0.9.1
+- **Enhanced PBS Compatibility**: Added support for `qstat -u <user>` filtering.
+- **Improved History Display**: `qstat -H` now correctly shows job history in PBS-style format.
+- **PBS-Style Submission**: `qsub` now outputs only the job ID (e.g., `1.master`) upon success, matching traditional HPC behavior.
+
+### v0.9.0
+- **International Release**: Documentation translated to English and terminology standardized.
+- **Delayed Start**: Added human-readable time support for `-a` option (e.g., `+1h`, `18:00`).
+- **Resource Efficiency**: Added configurable `inactivity_timeout` and automatic background archiving of old jobs.
+- **Zero Management**: Daemon starts automatically on any command and shuts down when idle.
 
 ---
 ### Author

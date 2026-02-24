@@ -19,6 +19,10 @@ jobs:
             target: x86_64-unknown-linux-musl
             asset_name: fbqueue-linux-x64.tar.gz
             example_dir: linux
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            asset_name: fbqueue-linux-arm64.tar.gz
+            example_dir: linux
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             asset_name: fbqueue-windows-x64.zip
@@ -30,9 +34,9 @@ jobs:
       - name: Install Rust
         run: rustup update stable && rustup target add ${{ matrix.target }}
 
-      - name: Install MUSL (Linux only)
+      - name: Install MUSL and Cross-compilers (Linux only)
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
@@ -40,22 +44,23 @@ jobs:
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          mkdir dist
-          cp target/${{ matrix.target }}/release/fbqueue .
-          tar -czvf dist/${{ matrix.asset_name }} \
-            fbqueue \
-            README.md \
-            MANUAL.md \
-            PBS_COMPATIBILITY.md \
-            examples/${{ matrix.example_dir }}
+          mkdir -p dist/fbqueue
+          cp target/${{ matrix.target }}/release/fbqueue dist/fbqueue/
+          cp README.md MANUAL.md PBS_COMPATIBILITY.md dist/fbqueue/
+          cp -r examples/${{ matrix.example_dir }} dist/fbqueue/examples
+          cd dist
+          tar -czvf ${{ matrix.asset_name }} fbqueue
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist
-          Copy-Item "target\${{ matrix.target }}\release\fbqueue.exe" .
-          Compress-Archive -Path "fbqueue.exe", "README.md", "MANUAL.md", "examples\windows" -DestinationPath "dist\${{ matrix.asset_name }}"
+          New-Item -ItemType Directory -Path dist\fbqueue
+          Copy-Item "target\${{ matrix.target }}\release\fbqueue.exe" -Destination dist\fbqueue\
+          Copy-Item "README.md", "MANUAL.md" -Destination dist\fbqueue\
+          Copy-Item -Path "examples\windows" -Destination dist\fbqueue\examples -Recurse
+          cd dist
+          Compress-Archive -Path "fbqueue" -DestinationPath "${{ matrix.asset_name }}"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1

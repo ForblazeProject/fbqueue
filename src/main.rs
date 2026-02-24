@@ -42,7 +42,7 @@ fn main() {
 }
 
 fn print_help() {
-    println!("FBQueue (Forblaze Queue) - Simple local job scheduler");
+    println!("FBQueue (Forblaze Queue) v{} - Simple local job scheduler", env!("CARGO_PKG_VERSION"));
     println!("Usage:");
     println!("  fbqueue sub [options] <command> [args...] (alias: qsub)");
     println!("  fbqueue stat [--style pbs|default] [-H [N]] (alias: qstat)");
