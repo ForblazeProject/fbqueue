@@ -30,13 +30,13 @@ FBQueue addresses the gap between manual script execution and heavy enterprise s
 Download the pre-built static binary and place it in your `$PATH`:
 
 ```bash
-# 1. Download and extract
-wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.1/fbqueue-linux-x64.tar.gz
-tar -xzvf fbqueue-linux-x64.tar.gz
+# 1. Download
+wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.2/fbqueue-linux-x64.tar.gz
 
-# 2. Move to your bin directory
+# 2. Extract and move
+tar -xzvf fbqueue-linux-x64.tar.gz
 mkdir -p ~/bin
-mv fbqueue ~/bin/
+mv fbqueue/fbqueue ~/bin/
 
 # 3. (Optional) Create PBS-style symbolic links
 ln -s ~/bin/fbqueue ~/bin/qsub
@@ -80,6 +80,11 @@ fbqueue sub ./calc.sh
 ```
 
 ## 📜 Change Log
+
+### v0.9.2
+- **Fixed Process Leak**: Improved job cancellation logic using process groups (`setsid`) on Unix and tree termination (`/T`) on Windows. Subprocesses spawned by job scripts are now correctly terminated.
+- **Robust Job Filtering**: `qstat <jobID>` (and `stat <jobID>`) now works reliably even if the job has already finished and moved to history. It also correctly handles the `.master` suffix.
+- **Dependency Update**: Added `libc` dependency for Unix systems to support advanced process management.
 
 ### v0.9.1
 - **Enhanced PBS Compatibility**: Added support for `qstat -u <user>` filtering.

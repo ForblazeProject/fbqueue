@@ -12,12 +12,20 @@ pub fn handle_stat(args: &[String], default_style: &str) {
     
     let mut style = default_style;
     let mut show_history = None;
+    let mut filter_user = None;
+    let mut filter_job_id = None;
+
     let mut i = 0;
     while i < args.len() {
-        if args[i] == "--style" && i + 1 < args.len() {
+        let arg = &args[i];
+        if arg == "stat" || arg.ends_with("fbqueue") || arg.ends_with("qstat") {
+            i += 1;
+            continue;
+        }
+        if arg == "--style" && i + 1 < args.len() {
             style = &args[i+1];
             i += 2;
-        } else if args[i] == "-H" || args[i] == "--history" {
+        } else if arg == "-H" || arg == "--history" {
             if i + 1 < args.len() && args[i+1].parse::<usize>().is_ok() {
                 show_history = Some(args[i+1].parse::<usize>().unwrap_or(conf.history_limit));
                 i += 2;
@@ -25,10 +33,21 @@ pub fn handle_stat(args: &[String], default_style: &str) {
                 show_history = Some(conf.history_limit);
                 i += 1;
             }
+        } else if arg == "-u" && i + 1 < args.len() {
+            filter_user = Some(args[i+1].clone());
+            i += 2;
+        } else if !arg.starts_with('-') {
+            // Positional argument: Job ID (handle both "123" and "123.master")
+            let id_part = arg.split('.').next().unwrap_or(arg);
+            if id_part.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                filter_job_id = Some(id_part.to_string());
+            }
+            i += 1;
         } else {
             i += 1;
         }
     }
+    // eprintln!("DEBUG: filter_job_id={:?}, filter_user={:?}, style={}", filter_job_id, filter_user, style);
 
     let new_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
     let running_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/running")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
@@ -40,35 +59,62 @@ pub fn handle_stat(args: &[String], default_style: &str) {
 
     for entry in &running_entries {
         if let Ok(j) = job::parse_job_file(&entry.path()) {
+            if let Some(ref fid) = filter_job_id { 
+                let jid_norm = j.id.split('.').next().unwrap_or(&j.id);
+                if jid_norm != fid { continue; } 
+            }
+            if let Some(ref u) = filter_user { if &j.user != u { continue; } }
             *used_caps.entry(j.queue.clone()).or_insert(0) += j.cost;
             total_used += j.cost;
             running_jobs.push(j);
         }
     }
+    
     let mut sorted_new = new_entries;
     sorted_new.sort_by_key(|e| e.file_name().to_str().unwrap_or("0").trim_end_matches(".job").parse::<usize>().unwrap_or(0));
     for entry in sorted_new {
-        if let Ok(j) = job::parse_job_file(&entry.path()) { pending_jobs.push(j); }
+        if let Ok(j) = job::parse_job_file(&entry.path()) {
+            if let Some(ref fid) = filter_job_id { 
+                let jid_norm = j.id.split('.').next().unwrap_or(&j.id);
+                if jid_norm != fid { continue; } 
+            }
+            if let Some(ref u) = filter_user { if &j.user != u { continue; } }
+            pending_jobs.push(j);
+        }
+    }
+
+    let mut history_jobs = Vec::new();
+    if show_history.is_some() || filter_job_id.is_some() {
+        let limit = show_history.unwrap_or(conf.history_limit);
+        for dir in &["queue/done", "queue/failed"] {
+            if let Ok(entries) = fs::read_dir(fbq_dir.join(dir)) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    if let Ok(j) = job::parse_job_file(&entry.path()) {
+                        if let Some(ref fid) = filter_job_id { 
+                            let jid_norm = j.id.split('.').next().unwrap_or(&j.id);
+                            if jid_norm != fid { continue; } 
+                        }
+                        if let Some(ref u) = filter_user { if &j.user != u { continue; } }
+                        history_jobs.push(j);
+                    }
+                }
+            }
+        }
+        history_jobs.sort_by(|a, b| b.id.parse::<usize>().unwrap_or(0).cmp(&a.id.parse::<usize>().unwrap_or(0)));
+        if show_history.is_some() {
+            history_jobs.truncate(limit);
+        }
     }
 
     let has_pending = !pending_jobs.is_empty();
     let has_running = !running_entries.is_empty();
 
     if style == "pbs" {
-        print_pbs_style(running_jobs, pending_jobs);
+        print_pbs_style(running_jobs, pending_jobs, history_jobs, show_history.is_some() || filter_job_id.is_some());
     } else {
         if let Some(limit) = show_history {
             println!("Recent Job History (Last {}):", limit);
-            let mut history = Vec::new();
-            for dir in &["queue/done", "queue/failed"] {
-                if let Ok(entries) = fs::read_dir(fbq_dir.join(dir)) {
-                    for entry in entries.filter_map(|e| e.ok()) {
-                        if let Ok(j) = job::parse_job_file(&entry.path()) { history.push(j); }
-                    }
-                }
-            }
-            history.sort_by(|a, b| b.id.parse::<usize>().unwrap_or(0).cmp(&a.id.parse::<usize>().unwrap_or(0)));
-            for j in history.iter().take(limit) {
+            for j in history_jobs {
                 let status = j.status.as_deref().unwrap_or("DONE");
                 println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | STATUS: {}", j.id, j.name, j.user, j.queue, status);
             }
@@ -108,21 +154,32 @@ pub fn handle_stat(args: &[String], default_style: &str) {
     }
 }
 
-fn print_pbs_style(mut running: Vec<job::Job>, mut pending: Vec<job::Job>) {
+fn print_pbs_style(mut running: Vec<job::Job>, mut pending: Vec<job::Job>, history: Vec<job::Job>, is_history_mode: bool) {
     println!("{:<16}  {:<16} {:<16}  {:<8} S {:<5}", "Job id", "Name", "User", "Time Use", "Queue");
     println!("{:-<16}  {:-<16} {:-<16}  {:-<8} - {:-<5}", "", "", "", "", "");
 
     let now = utils::get_now();
-    running.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
-    pending.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
-
-    for j in running {
-        let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
-        let time_use = format!("{:02}:{:02}:{:02}", elapsed / 3600, (elapsed % 3600) / 60, elapsed % 60);
-        println!("{:<16}  {:<16} {:<16}  {:<8} R {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), time_use, j.queue);
-    }
-    for j in pending {
-        println!("{:<16}  {:<16} {:<16}  {:<8} Q {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), "0", j.queue);
+    
+    if !is_history_mode {
+        running.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
+        for j in running {
+            let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
+            let time_use = format!("{:02}:{:02}:{:02}", elapsed / 3600, (elapsed % 3600) / 60, elapsed % 60);
+            println!("{:<16}  {:<16} {:<16}  {:<8} R {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), time_use, j.queue);
+        }
+        pending.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
+        for j in pending {
+            println!("{:<16}  {:<16} {:<16}  {:<8} Q {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), "0", j.queue);
+        }
+    } else {
+        for j in history {
+            let status_char = match j.status.as_deref() {
+                Some("DONE") => "F",
+                Some("FAILED") | Some("CANCELLED") | Some("TIMEOUT") => "E",
+                _ => "F",
+            };
+            println!("{:<16}  {:<16} {:<16}  {:<8} {} {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), "0", status_char, j.queue);
+        }
     }
 }
 

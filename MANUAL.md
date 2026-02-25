@@ -144,7 +144,9 @@ Jobs are executed via their respective shells without modifying the original scr
 
 | Command | Option | Description |
 | :--- | :--- | :--- |
+| `stat` | `[jobID]` | Filter by a specific job ID (supports `.master` suffix) |
 | `stat` | `--style pbs` | Use PBS-compatible tabular output |
+| `stat` | `-u <user>` | Filter jobs by specific username |
 | `stat` | `-H`, `--history [N]` | Show recent job history (last N jobs) |
 | `del` | `<job_id>` | Cancel a pending or running job |
 

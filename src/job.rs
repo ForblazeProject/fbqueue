@@ -174,6 +174,10 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     content.push_str(&format!("cwd: {}\n", cwd.display()));
     for (key, val) in env::vars() { content.push_str(&format!("env: {}={}\n", key, val)); }
 
-    fs::write(&job_file_path, content).expect("Failed to write job file");
-    println!("Job submitted: {} ({}) [queue: {}, cost: {}]", job_id, final_name, final_queue, final_cost);
-}
+        fs::write(&job_file_path, content).expect("Failed to write job file");
+
+        println!("{}.master", job_id);
+
+    }
+
+    

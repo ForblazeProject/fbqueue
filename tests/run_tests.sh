@@ -266,6 +266,109 @@ EOT
     fi
 }
 
+test_pbs_user_filter_and_history() {
+    reset_state
+    echo "  Submitting job with specific name..."
+    ./qsub -N MyJob echo "test"
+    sleep 1
+    echo "  Checking qstat -u $USER (active or history)..."
+    ./qstat -u "$USER" -H > stat_u.txt
+    if grep -qi "MyJob" stat_u.txt; then
+        echo -e "  ${GREEN}[PASS]${NC} Found job with -u $USER."
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}[FAIL]${NC} Could not find job with -u $USER. Stat:"
+        cat stat_u.txt
+        FAILED=$((FAILED + 1))
+    fi
+
+    echo "  Checking qstat -u otheruser (should be empty)..."
+    ./qstat -u "otheruser" -H > stat_other.txt
+    if ! grep -qi "MyJob" stat_other.txt; then
+        echo -e "  ${GREEN}[PASS]${NC} Correctly filtered out other user."
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}[FAIL]${NC} Found job even with wrong user filter."
+        FAILED=$((FAILED + 1))
+    fi
+
+    echo "  Checking qstat -H (PBS style history status)..."
+    ./qstat -H > history_pbs.txt
+    if grep -qi "MyJob" history_pbs.txt && grep -qi " F " history_pbs.txt; then
+        echo -e "  ${GREEN}[PASS]${NC} Found finished job in PBS history with 'F' status."
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}[FAIL]${NC} PBS history failed. Stat:"
+        cat history_pbs.txt
+        FAILED=$((FAILED + 1))
+    fi
+}
+
+test_pbs_job_id_filter() {
+    reset_state
+    echo "  Submitting job 1 and job 2..."
+    ./qsub -N FirstJob echo "1"
+    ./qsub -N SecondJob echo "2"
+    sleep 1
+    
+    echo "  Checking qstat 1 (should only show FirstJob)..."
+    ./qstat 1 > stat_1.txt
+    if grep -qi "FirstJob" stat_1.txt && ! grep -qi "SecondJob" stat_1.txt; then
+        echo -e "  ${GREEN}[PASS]${NC} Correctly filtered by job ID 1."
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}[FAIL]${NC} Job ID filtering failed. Stat:"
+        cat stat_1.txt
+        FAILED=$((FAILED + 1))
+    fi
+
+    echo "  Checking qstat 2.master (should handle suffix)..."
+    ./qstat 2.master > stat_2.txt
+    if grep -qi "SecondJob" stat_2.txt && ! grep -qi "FirstJob" stat_2.txt; then
+        echo -e "  ${GREEN}[PASS]${NC} Correctly filtered by job ID 2.master."
+        PASSED=$((PASSED + 1))
+    else
+        echo -e "  ${RED}[FAIL]${NC} Job ID filtering with suffix failed. Stat:"
+        cat stat_2.txt
+        FAILED=$((FAILED + 1))
+    fi
+}
+
+test_child_process_cleanup() {
+    reset_state
+    cat <<'EOT' > parent.sh
+#!/bin/bash
+sleep 100 &
+child_pid=$!
+echo "Child PID: $child_pid"
+wait $child_pid
+EOT
+    chmod +x parent.sh
+    ./qsub ./parent.sh
+    sleep 2
+    
+    # Find the PID of the sleep command
+    SLEEP_PID=$(pgrep -f "sleep 100")
+    if [ -z "$SLEEP_PID" ]; then
+        echo -e "  ${RED}[FAIL]${NC} Child process (sleep) not started."
+        FAILED=$((FAILED + 1))
+        return
+    fi
+    echo "  Detected child (sleep) PID: $SLEEP_PID"
+    
+    ./qdel 1
+    sleep 3
+    
+    if ps -p $SLEEP_PID > /dev/null 2>&1; then
+        echo -e "  ${RED}[FAIL]${NC} Child process $SLEEP_PID is still running! (Leak detected)"
+        kill -9 $SLEEP_PID > /dev/null 2>&1
+        FAILED=$((FAILED + 1))
+    else
+        echo -e "  ${GREEN}[PASS]${NC} Child process tree was correctly terminated."
+        PASSED=$((PASSED + 1))
+    fi
+}
+
 # --- Execution ---
 test_basic_echo
 test_script_no_x
@@ -276,6 +379,9 @@ test_job_cancellation
 test_daemon_recovery
 test_delayed_start
 test_history_and_archiving
+test_pbs_user_filter_and_history
+test_child_process_cleanup
+test_pbs_job_id_filter
 
 echo "-----------------------------------"
 echo -e "All Tests Finished: ${GREEN}$PASSED Passed${NC}, ${RED}$FAILED Failed${NC}"

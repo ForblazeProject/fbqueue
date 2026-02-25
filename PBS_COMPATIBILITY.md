@@ -21,8 +21,8 @@ ln -s fbqueue qdel
 ```
 
 Once linked, FBQueue automatically detects how it was invoked and adjusts its behavior:
-- `qsub` behaves like `fbqueue sub`
-- `qstat` behaves like `fbqueue stat --style pbs`
+- `qsub` behaves like `fbqueue sub` (Outputs only `<id>.master` upon success)
+- `qstat` behaves like `fbqueue stat --style pbs` (Supports `qstat <jobID>`, `-u <user>`, and `-H`)
 - `qdel` behaves like `fbqueue del`
 
 ---

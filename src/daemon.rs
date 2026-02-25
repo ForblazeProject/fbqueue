@@ -70,8 +70,7 @@ pub fn run_daemon() {
                 let id = entry.file_name().to_str().unwrap().trim_end_matches(".job").to_string();
                 if let Some(pos) = running_jobs.iter().position(|(rid, _, _, _, _, _)| rid == &id) {
                     let (_, mut child, _, _, _, _) = running_jobs.remove(pos);
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    kill_process_tree(&mut child);
                     if let Ok(mut f) = fs::OpenOptions::new().append(true).open(fbq_dir.join("queue/running").join(entry.file_name())) {
                         let _ = writeln!(f, "status: CANCELLED");
                     }
@@ -86,8 +85,7 @@ pub fn run_daemon() {
             let (_id, ref mut child, _, _, start_at, walltime) = &mut running_jobs[i];
             if let Some(wt) = *walltime {
                 if now - *start_at > wt {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    kill_process_tree(child);
                     let (job_id, _, _, _, _, _) = running_jobs.remove(i);
                     let fname = format!("{}.job", job_id);
                     let job_path = fbq_dir.join("queue/running").join(&fname);
@@ -182,6 +180,12 @@ pub fn run_daemon() {
                                 process::Command::new(&j.cmd)
                             };
 
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::process::CommandExt;
+                                unsafe { child_cmd.pre_exec(|| { setsid(); Ok(()) }); }
+                            }
+
                             #[cfg(windows)]
                             let mut child_cmd = if is_file {
                                 let cmd_lower = j.cmd.to_lowercase();
@@ -225,6 +229,30 @@ pub fn run_daemon() {
         }
         thread::sleep(Duration::from_secs(1));
     }
+}
+
+fn kill_process_tree(child: &mut process::Child) {
+    let pid = child.id();
+    #[cfg(unix)]
+    {
+        // Kill the entire process group (PGID is same as PID because of setsid)
+        let pgid = pid as i32;
+        unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        // /T kills child processes as well
+        let _ = process::Command::new("taskkill")
+            .arg("/F")
+            .arg("/T")
+            .arg("/PID")
+            .arg(pid.to_string())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn prune_history(fbq_dir: &Path, limit: usize) {
