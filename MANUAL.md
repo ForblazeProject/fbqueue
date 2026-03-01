@@ -181,11 +181,27 @@ FBQueue automatically maps embedded script directives to internal job parameters
 | **Dependencies** | `#$ -hold_jid 123` | **`depend`** |
 | **Walltime** | `#$ -l h_rt=01:30:00` | **`walltime`** |
 
-## 9. Roadmap
+## 9. Job Environment Variables (PBS Compatibility)
+
+FBQueue automatically injects environment variables into the job execution context to ensure compatibility with scripts designed for traditional HPC schedulers like PBS.
+
+| Variable | Description |
+| :--- | :--- |
+| **`$PBS_JOBID`** | The unique job ID assigned by FBQueue (e.g., `147`). |
+| **`$PBS_JOBNAME`** | The name of the job (defaults to the script path if not specified). |
+| **`$PBS_O_WORKDIR`** | The absolute path to the directory where the job was submitted. |
+| **`$PBS_QUEUE`** | The name of the queue where the job is executing. |
+| **`$PBS_NODEFILE`** | Path to a temporary file containing the execution hostname. Deleted after job completion. |
+| **`$PBS_ENVIRONMENT`** | Set to `PBS_BATCH` to indicate the job is running in a batch environment. |
+| **`$PBS_O_HOST`** | The hostname of the machine where the job was submitted. |
+| **`$PBS_O_LOGNAME`** | The username of the user who submitted the job. |
+
+## 10. Roadmap
 
 *   [x] **Background Archiving**: Automatic `tar.gz` compression of old job records during idle periods.
-*   *   **Flexible Directory Discovery**: Support for recursive parent directory search for `.fbqueue` configuration.
-*   *   **Detailed Analytics**: Advanced statistics and status summaries via `fbqueue stat`.
+*   [x] **Full PBS Compatibility**: Support for standard environment variables and script directives.
+*   [x] **Windows Native Execution**: Support for `.ps1` and `.bat` scripts with automatic path handling.
+*   [ ] **Detailed Analytics**: Advanced statistics and status summaries via `fbqueue stat`.
 
 ---
 ### Author

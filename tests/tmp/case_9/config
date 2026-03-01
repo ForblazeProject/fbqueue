@@ -1,0 +1,3 @@
+capacity: 10
+history_limit: 3
+archive_interval_days: 0

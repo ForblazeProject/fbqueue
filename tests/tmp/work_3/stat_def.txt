@@ -1,0 +1,5 @@
+FBQueue Status (Global Capacity: 2/8):
+  Queue: batch      | Capacity:  2/8  | Priority:  10
+
+Running Jobs:
+  ID:    1 | NAME: PbsName         | USER: wsl        | QUEUE: batch      | COST: 2 | TIME: 2s

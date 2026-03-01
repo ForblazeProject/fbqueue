@@ -1,0 +1,4 @@
+Recent Job History (Last 3):
+  ID:    5 | NAME: echo            | USER: wsl        | QUEUE: default    | STATUS: DONE
+  ID:    4 | NAME: echo            | USER: wsl        | QUEUE: default    | STATUS: DONE
+  ID:    3 | NAME: echo            | USER: wsl        | QUEUE: default    | STATUS: DONE

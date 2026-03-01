@@ -69,7 +69,8 @@ pub fn run_daemon() {
             for entry in entries.filter_map(|e| e.ok()) {
                 let id = entry.file_name().to_str().unwrap().trim_end_matches(".job").to_string();
                 if let Some(pos) = running_jobs.iter().position(|(rid, _, _, _, _, _)| rid == &id) {
-                    let (_, mut child, _, _, _, _) = running_jobs.remove(pos);
+                    let (rid, mut child, _, _, _, _) = running_jobs.remove(pos);
+                    let _ = fs::remove_file(fbq_dir.join("run").join(format!("nodefile.{}", rid)));
                     kill_process_tree(&mut child);
                     if let Ok(mut f) = fs::OpenOptions::new().append(true).open(fbq_dir.join("queue/running").join(entry.file_name())) {
                         let _ = writeln!(f, "status: CANCELLED");
@@ -87,6 +88,7 @@ pub fn run_daemon() {
                 if now - *start_at > wt {
                     kill_process_tree(child);
                     let (job_id, _, _, _, _, _) = running_jobs.remove(i);
+                    let _ = fs::remove_file(fbq_dir.join("run").join(format!("nodefile.{}", job_id)));
                     let fname = format!("{}.job", job_id);
                     let job_path = fbq_dir.join("queue/running").join(&fname);
                     if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&job_path) {
@@ -103,6 +105,8 @@ pub fn run_daemon() {
         while i < running_jobs.len() {
             if let Ok(Some(status)) = running_jobs[i].1.try_wait() {
                 let (id, _, _, _, _, _) = running_jobs.remove(i);
+                let nodefile_path = fbq_dir.join("run").join(format!("nodefile.{}", id));
+                let _ = fs::remove_file(nodefile_path);
                 let fname = format!("{}.job", id);
                 let rpath = fbq_dir.join("queue/running").join(&fname);
                 let exit_code = status.code().unwrap_or(-1);
@@ -202,7 +206,17 @@ pub fn run_daemon() {
                                 process::Command::new(&j.cmd)
                             };
 
-                            child_cmd.args(&j.args).current_dir(&j.cwd).envs(j.envs).stdout(out_f).stderr(err_f);
+                            let nodefile_path = fbq_dir.join("run").join(format!("nodefile.{}", j.id));
+                            let hostname = process::Command::new("hostname").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_else(|_| "localhost".to_string());
+                            let _ = fs::write(&nodefile_path, format!("{}\n", hostname));
+
+                            child_cmd.args(&j.args).current_dir(&j.cwd).envs(j.envs)
+                                .env("PBS_JOBID", &j.id)
+                                .env("PBS_JOBNAME", &j.name)
+                                .env("PBS_QUEUE", &j.queue)
+                                .env("PBS_NODEFILE", nodefile_path.display().to_string())
+                                .env("PBS_ENVIRONMENT", "PBS_BATCH")
+                                .stdout(out_f).stderr(err_f);
 
                             if let Ok(child) = child_cmd.spawn() {
                                 running_jobs.push((j.id, child, j.cost, j.queue, now, j.walltime));

@@ -1,0 +1,5 @@
+FBQueue Status (Global Capacity: 0/1):
+  Queue: default    | Capacity:  0/1  | Priority:  10
+
+Pending Jobs:
+  ID:    1 | NAME: delayed_job     | USER: wsl        | QUEUE: default    | COST: 1 | STATUS: Pending (Wait until 2026-02-25 13:20:52)

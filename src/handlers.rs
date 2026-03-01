@@ -104,7 +104,7 @@ pub fn handle_daemon(args: &[String]) {
             if let Ok(pid_str) = fs::read_to_string(&lock_file) {
                 if let Ok(pid) = pid_str.trim().parse::<u32>() {
                     #[cfg(unix)] { process::Command::new("kill").arg(pid.to_string()).status().ok(); }
-                    #[cfg(windows)] { process::Command::new("taskkill").arg("/PID").arg(pid.to_string()).arg("/F").status().ok(); }
+                    #[cfg(windows)] { process::Command::new("taskkill").arg("/PID").arg(pid.to_string()).arg("/F").arg("/T").status().ok(); }
                 }
             }
             let _ = fs::remove_file(lock_file);

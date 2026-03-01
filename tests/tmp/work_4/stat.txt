@@ -1,0 +1,5 @@
+Job id            Name             User              Time Use S Queue
+----------------  ---------------- ----------------  -------- - -----
+1.master          job1             wsl               00:00:02 R default
+2.master          job2             wsl               00:00:01 R default
+3.master          job3             wsl               0        Q default

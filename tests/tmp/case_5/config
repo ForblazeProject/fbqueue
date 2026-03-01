@@ -1,0 +1,6 @@
+capacity: 1
+default_queue: batch
+queue: batch
+  priority: 10
+queue: express
+  priority: 100

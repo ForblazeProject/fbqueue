@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::process;
 use std::io::{self, BufRead};
 use std::path::{Path, PathBuf};
 use crate::utils;
@@ -162,6 +163,7 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let job_file_path = fbq_dir.join("queue/new").join(format!("{}.job", job_id));
 
     let current_user = env::var("USER").or_else(|_| env::var("USERNAME")).unwrap_or_else(|_| "unknown".to_string());
+    let hostname = process::Command::new("hostname").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_else(|_| "localhost".to_string());
 
     let mut content = format!("id: {}\nname: {}\ncmd: {}\ncost: {}\nuser: {}\nqueue: {}\n", job_id, final_name, cmd, final_cost, current_user, final_queue);
     if let Some(o) = final_out { content.push_str(&format!("stdout: {}\n", o)); }
@@ -172,6 +174,12 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     
     for arg in job_args { content.push_str(&format!("arg: {}\n", arg)); }
     content.push_str(&format!("cwd: {}\n", cwd.display()));
+
+    // PBS compatibility environment variables (Submission time)
+    content.push_str(&format!("env: PBS_O_WORKDIR={}\n", cwd.display()));
+    content.push_str(&format!("env: PBS_O_LOGNAME={}\n", current_user));
+    content.push_str(&format!("env: PBS_O_HOST={}\n", hostname));
+
     for (key, val) in env::vars() { content.push_str(&format!("env: {}={}\n", key, val)); }
 
         fs::write(&job_file_path, content).expect("Failed to write job file");

@@ -83,7 +83,22 @@ Job id            Name             User              Time Use S Queue
 
 ---
 
-## 4. Why use FBQueue for PBS Workflows?
+## 4. Standard PBS Environment Variables
+
+FBQueue injects standard PBS environment variables into your job's execution context. This allows your scripts to remain portable across different clusters.
+
+| Variable | Description |
+| :--- | :--- |
+| **`$PBS_JOBID`** | The unique job ID assigned by FBQueue. |
+| **`$PBS_O_WORKDIR`** | The directory from which the job was submitted. |
+| **`$PBS_NODEFILE`** | Path to a file containing the hostname of the execution node. |
+| **`$PBS_O_HOST`** | The hostname of the submission machine. |
+| **`$PBS_O_LOGNAME`** | The username of the user who submitted the job. |
+| **`$PBS_ENVIRONMENT`** | Set to `PBS_BATCH` to indicate a batch job environment. |
+
+---
+
+## 5. Why use FBQueue for PBS Workflows?
 
 - **Personal Sandbox**: Run your PBS scripts on your local workstation or a shared server where you don't have administrative rights to a full PBS cluster.
 - **Portability**: Move your research scripts between a massive supercomputer and your local laptop without changing a single line of the `#PBS` directives.

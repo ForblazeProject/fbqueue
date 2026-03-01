@@ -31,7 +31,7 @@ Download the pre-built static binary and place it in your `$PATH`:
 
 ```bash
 # 1. Download
-wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.2/fbqueue-linux-x64.tar.gz
+wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.3/fbqueue-linux-x64.tar.gz
 
 # 2. Extract and move
 tar -xzvf fbqueue-linux-x64.tar.gz
@@ -80,6 +80,11 @@ fbqueue sub ./calc.sh
 ```
 
 ## 📜 Change Log
+
+### v0.9.3
+- **Full PBS Environment Emulation**: Jobs now automatically define standard PBS variables like `$PBS_JOBID`, `$PBS_O_WORKDIR`, `$PBS_O_HOST`, and `$PBS_O_LOGNAME`.
+- **Nodefile Support**: Dynamically generates and cleans up `$PBS_NODEFILE` for compatibility with scripts expecting a list of execution nodes.
+- **Improved Metadata Accuracy**: Enhanced hostname and user detection across both Linux and Windows for more reliable job logging.
 
 ### v0.9.2
 - **Fixed Process Leak**: Improved job cancellation logic using process groups (`setsid`) on Unix and tree termination (`/T`) on Windows. Subprocesses spawned by job scripts are now correctly terminated.
