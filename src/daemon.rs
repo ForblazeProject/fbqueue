@@ -217,7 +217,8 @@ pub fn run_daemon() {
 
                             let nodefile_path = fbq_dir.join("run").join(format!("nodefile.{}", j.id));
                             let hostname = process::Command::new("hostname").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_else(|_| "localhost".to_string());
-                            let _ = fs::write(&nodefile_path, format!("{}\n", hostname));
+                            let slots = if j.cost > 0 { j.cost } else { 1 };
+                            let _ = fs::write(&nodefile_path, format!("{}\n", hostname).repeat(slots));
 
                             child_cmd.args(&j.args).current_dir(&j.cwd).envs(j.envs)
                                 .env("PBS_JOBID", &j.id)

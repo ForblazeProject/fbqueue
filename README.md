@@ -31,7 +31,7 @@ Download the pre-built static binary and place it in your `$PATH`:
 
 ```bash
 # 1. Download
-wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.3/fbqueue-linux-x64.tar.gz
+wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.5/fbqueue-linux-x64.tar.gz
 
 # 2. Extract and move
 tar -xzvf fbqueue-linux-x64.tar.gz
@@ -80,6 +80,10 @@ fbqueue sub ./calc.sh
 ```
 
 ## 📜 Change Log
+
+### v0.9.5
+- **MPI Parallel Execution Fix**: `$PBS_NODEFILE` now contains one line per requested slot (`cost`), matching the standard PBS specification. This allows `mpiexec -n N` to work without `--oversubscribe` when the job's cost is set appropriately (e.g., `#PBS -l ncpus=4` or `qsub -c 4`).
+- **qstat Job ID Filtering Fix**: `qstat <jobid>` now correctly displays jobs in any state (running, pending, or finished) instead of only showing history. Previously, active jobs were hidden when filtering by job ID.
 
 ### v0.9.4
 - **Shebang Support**: Unix scripts now respect the interpreter defined in their shebang line (e.g., `#!/bin/bash`), resolving issues with `conda` environments and shell-specific syntax.

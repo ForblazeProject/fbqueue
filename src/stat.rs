@@ -110,7 +110,11 @@ pub fn handle_stat(args: &[String], default_style: &str) {
     let has_running = !running_entries.is_empty();
 
     if style == "pbs" {
-        print_pbs_style(running_jobs, pending_jobs, history_jobs, show_history.is_some() || filter_job_id.is_some());
+        // history_only: show only finished jobs (qstat -H)
+        // include_history: also show finished jobs alongside active ones (qstat <jobid>)
+        let history_only = show_history.is_some();
+        let include_history = filter_job_id.is_some();
+        print_pbs_style(running_jobs, pending_jobs, history_jobs, history_only, include_history);
     } else {
         if let Some(limit) = show_history {
             println!("Recent Job History (Last {}):", limit);
@@ -145,6 +149,17 @@ pub fn handle_stat(args: &[String], default_style: &str) {
                     println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | TIME: {}{}s", j.id, j.name, j.user, j.queue, j.cost, elapsed, walltime_str);
                 }
             }
+
+            // When filtering by job ID, also show finished jobs from history
+            if filter_job_id.is_some() && !history_jobs.is_empty() {
+                println!("\nFinished Jobs:");
+                let mut sorted_history = history_jobs;
+                sorted_history.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
+                for j in sorted_history {
+                    let status = j.status.as_deref().unwrap_or("DONE");
+                    println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | STATUS: {}", j.id, j.name, j.user, j.queue, status);
+                }
+            }
         }
     }
     
@@ -154,13 +169,13 @@ pub fn handle_stat(args: &[String], default_style: &str) {
     }
 }
 
-fn print_pbs_style(mut running: Vec<job::Job>, mut pending: Vec<job::Job>, history: Vec<job::Job>, is_history_mode: bool) {
+fn print_pbs_style(mut running: Vec<job::Job>, mut pending: Vec<job::Job>, history: Vec<job::Job>, history_only: bool, include_history: bool) {
     println!("{:<16}  {:<16} {:<16}  {:<8} S {:<5}", "Job id", "Name", "User", "Time Use", "Queue");
     println!("{:-<16}  {:-<16} {:-<16}  {:-<8} - {:-<5}", "", "", "", "", "");
 
     let now = utils::get_now();
     
-    if !is_history_mode {
+    if !history_only {
         running.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
         for j in running {
             let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
@@ -171,8 +186,13 @@ fn print_pbs_style(mut running: Vec<job::Job>, mut pending: Vec<job::Job>, histo
         for j in pending {
             println!("{:<16}  {:<16} {:<16}  {:<8} Q {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), "0", j.queue);
         }
-    } else {
-        for j in history {
+    }
+
+    // Show finished jobs when in history-only mode (qstat -H) or when filtering by job ID
+    if history_only || include_history {
+        let mut sorted_history = history;
+        sorted_history.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
+        for j in sorted_history {
             let status_char = match j.status.as_deref() {
                 Some("DONE") => "F",
                 Some("FAILED") | Some("CANCELLED") | Some("TIMEOUT") => "E",

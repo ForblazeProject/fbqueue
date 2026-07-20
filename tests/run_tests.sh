@@ -286,7 +286,7 @@ test_pbs_user_filter_and_history() {
     reset_state
     echo "  Submitting job with specific name..."
     ./qsub -N MyJob echo "test"
-    sleep 1
+    sleep 3
     echo "  Checking qstat -u $USER (active or history)..."
     ./qstat -u "$USER" -H > stat_u.txt
     if grep -qi "MyJob" stat_u.txt; then

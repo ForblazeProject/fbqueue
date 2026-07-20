@@ -191,7 +191,7 @@ FBQueue automatically injects environment variables into the job execution conte
 | **`$PBS_JOBNAME`** | The name of the job (defaults to the script path if not specified). |
 | **`$PBS_O_WORKDIR`** | The absolute path to the directory where the job was submitted. |
 | **`$PBS_QUEUE`** | The name of the queue where the job is executing. |
-| **`$PBS_NODEFILE`** | Path to a temporary file containing the execution hostname. Deleted after job completion. |
+| **`$PBS_NODEFILE`** | Path to a temporary file containing the execution hostname repeated once per requested slot (`cost`). OpenMPI/`mpiexec` reads this to determine the number of available slots, so `mpiexec -n N lmp` works without `--oversubscribe` when `cost >= N`. Deleted after job completion. |
 | **`$PBS_ENVIRONMENT`** | Set to `PBS_BATCH` to indicate the job is running in a batch environment. |
 | **`$PBS_O_HOST`** | The hostname of the machine where the job was submitted. |
 | **`$PBS_O_LOGNAME`** | The username of the user who submitted the job. |
