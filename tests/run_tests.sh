@@ -91,6 +91,22 @@ EOT
     assert_grep "myscript.sh.o1" "Script working"
 }
 
+test_script_shebang() {
+    reset_state
+    cat <<'EOT' > shebang_script.sh
+#!/bin/bash
+if [ -n "$BASH_VERSION" ]; then
+    echo "Using bash interpreter"
+else
+    echo "Using default interpreter"
+fi
+EOT
+    chmod 644 shebang_script.sh
+    ./qsub shebang_script.sh
+    sleep 3
+    assert_grep "shebang_script.sh.o1" "Using bash interpreter"
+}
+
 test_pbs_directives() {
     reset_state
     cat <<'EOT' > pbs_test.sh
@@ -307,8 +323,8 @@ test_pbs_user_filter_and_history() {
 test_pbs_job_id_filter() {
     reset_state
     echo "  Submitting job 1 and job 2..."
-    ./qsub -N FirstJob echo "1"
-    ./qsub -N SecondJob echo "2"
+    ./qsub -N FirstJob sleep 5
+    ./qsub -N SecondJob sleep 5
     sleep 1
     
     echo "  Checking qstat 1 (should only show FirstJob)..."
@@ -372,6 +388,7 @@ EOT
 # --- Execution ---
 test_basic_echo
 test_script_no_x
+test_script_shebang
 test_pbs_directives
 test_capacity_limit
 test_priority_queue

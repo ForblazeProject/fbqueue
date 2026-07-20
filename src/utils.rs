@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn get_fbq_dir() -> PathBuf {
     if let Ok(dir) = env::var("FBQUEUE_DIR") {
@@ -209,4 +209,29 @@ pub fn get_next_id() -> String {
     fs::write(&id_file, next_id.to_string()).ok();
     if acquired { let _ = fs::remove_dir(&lock_dir); }
     next_id.to_string()
+}
+
+pub fn parse_shebang(path: &Path) -> Option<(String, Vec<String>)> {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+
+    let file = File::open(path).ok()?;
+    let mut reader = BufReader::new(file);
+    let mut first_line = String::new();
+    reader.read_line(&mut first_line).ok()?;
+
+    let trimmed = first_line.trim();
+    if trimmed.starts_with("#!") {
+        let shebang_content = trimmed[2..].trim();
+        let parts: Vec<String> = shebang_content
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        if !parts.is_empty() {
+            let interpreter = parts[0].clone();
+            let args = parts[1..].to_vec();
+            return Some((interpreter, args));
+        }
+    }
+    None
 }

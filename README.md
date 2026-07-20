@@ -81,6 +81,9 @@ fbqueue sub ./calc.sh
 
 ## 📜 Change Log
 
+### v0.9.4
+- **Shebang Support**: Unix scripts now respect the interpreter defined in their shebang line (e.g., `#!/bin/bash`), resolving issues with `conda` environments and shell-specific syntax.
+
 ### v0.9.3
 - **Full PBS Environment Emulation**: Jobs now automatically define standard PBS variables like `$PBS_JOBID`, `$PBS_O_WORKDIR`, `$PBS_O_HOST`, and `$PBS_O_LOGNAME`.
 - **Nodefile Support**: Dynamically generates and cleans up `$PBS_NODEFILE` for compatibility with scripts expecting a list of execution nodes.

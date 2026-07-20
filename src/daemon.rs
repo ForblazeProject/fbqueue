@@ -177,9 +177,18 @@ pub fn run_daemon() {
                             
                             #[cfg(unix)]
                             let mut child_cmd = if is_file {
-                                let mut c = process::Command::new("sh");
-                                c.arg(&j.cmd);
-                                c
+                                if let Some((interpreter, interpreter_args)) = utils::parse_shebang(&script_path) {
+                                    let mut c = process::Command::new(interpreter);
+                                    for arg in interpreter_args {
+                                        c.arg(arg);
+                                    }
+                                    c.arg(&j.cmd);
+                                    c
+                                } else {
+                                    let mut c = process::Command::new("sh");
+                                    c.arg(&j.cmd);
+                                    c
+                                }
                             } else {
                                 process::Command::new(&j.cmd)
                             };

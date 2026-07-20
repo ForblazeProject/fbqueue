@@ -1,3 +1,0 @@
-Job id            Name             User              Time Use S Queue
-----------------  ---------------- ----------------  -------- - -----
-1.master          JobOne           wsl               0        F batch

@@ -1,3 +1,0 @@
-Job id            Name             User              Time Use S Queue
-----------------  ---------------- ----------------  -------- - -----
-2.master          JobTwo           wsl               0        F batch

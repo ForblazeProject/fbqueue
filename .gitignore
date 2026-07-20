@@ -1,2 +1,4 @@
 target/
 .fbqueue/
+tests/tmp/
+tests/tmp_focused/
