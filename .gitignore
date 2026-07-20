@@ -2,3 +2,4 @@ target/
 .fbqueue/
 tests/tmp/
 tests/tmp_focused/
+AGENTS.md
