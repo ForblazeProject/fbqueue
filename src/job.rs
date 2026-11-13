@@ -79,11 +79,16 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
     Ok(Job { id, name, cmd, args, cwd, envs, cost, stdout, stderr, user, queue, walltime, depend, start_after, start_at, _end_at: end_at, _exit_code: exit_code, status })
 }
 
-pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<&str>, 
+pub fn parse_cost(value: &str) -> Result<usize, String> {
+    value.parse::<usize>().ok().filter(|n| *n > 0)
+        .ok_or_else(|| format!("Invalid cost '{}': expected a positive integer", value))
+}
+
+pub fn prepare_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<&str>,
                   cli_cost: Option<usize>, cli_name: Option<String>, 
                   cli_out: Option<String>, cli_err: Option<String>,
                   cli_queue: Option<String>, cli_walltime: Option<u64>,
-                  cli_depend: Option<String>, cli_start_after: Option<u64>) {
+                  cli_depend: Option<String>, cli_start_after: Option<u64>) -> Result<String, String> {
     let replace = |s: &str| if let Some(v) = val { s.replace("{}", v) } else { s.to_string() };
     
     let raw_cmd = replace(cmd_tmpl);
@@ -100,8 +105,8 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let job_args: Vec<_> = args_tmpl.iter().map(|s| replace(s)).collect();
     
     let conf = config::get_config();
-    let def_q = conf.default_queue;
-    let mut script_cost = 1;
+    let def_q = conf.default_queue.clone();
+    let mut script_cost = Ok(1);
     let mut script_name = String::new();
     let mut script_out = None;
     let mut script_err = None;
@@ -121,7 +126,8 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
                     while i < parts.len() {
                         match parts[i] {
                             "-N" | "-J" if i + 1 < parts.len() => { script_name = parts[i+1].to_string(); i += 2; }
-                            "-c" | "-n" if i + 1 < parts.len() => { script_cost = parts[i+1].parse().unwrap_or(script_cost); i += 2; }
+                            "-c" | "-n" if i + 1 < parts.len() => { script_cost = parse_cost(parts[i+1]); i += 2; }
+                            "-c" | "-n" => { script_cost = Err("Missing script cost: expected a positive integer".to_string()); i += 1; }
                             "-q" if i + 1 < parts.len() => { script_queue = Some(parts[i+1].to_string()); i += 2; }
                             "-o" if i + 1 < parts.len() => { script_out = Some(parts[i+1].to_string()); i += 2; }
                             "-e" if i + 1 < parts.len() => { script_err = Some(parts[i+1].to_string()); i += 2; }
@@ -132,15 +138,18 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
                                     script_walltime = Some(utils::parse_duration(&arg[5..]));
                                 } else if arg.starts_with("nodes=") {
                                     if let Some(pos) = arg.find("ppn=") {
-                                        script_cost = arg[pos+4..].parse().unwrap_or(script_cost);
+                                        script_cost = parse_cost(&arg[pos+4..]);
                                     }
                                 } else if arg.starts_with("ncpus=") {
-                                    script_cost = arg[6..].parse().unwrap_or(script_cost);
+                                    script_cost = parse_cost(&arg[6..]);
                                 }
                                 i += 2;
                             }
                             "-pe" if i + 2 < parts.len() && parts[i+1] == "smp" => { 
-                                script_cost = parts[i+2].parse().unwrap_or(script_cost); i += 3; 
+                                script_cost = parse_cost(parts[i+2]); i += 3;
+                            }
+                            "-pe" if i + 1 < parts.len() && parts[i+1] == "smp" => {
+                                script_cost = Err("Missing script cost after '-pe smp'".to_string()); i += 2;
                             }
                             _ => i += 1,
                         }
@@ -150,7 +159,9 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
         }
     }
 
-    let final_cost = cli_cost.unwrap_or(script_cost);
+    // Validate the effective setting: a CLI cost overrides script directives,
+    // including malformed values in directives that are not being used.
+    let final_cost = match cli_cost { Some(cost) => cost, None => script_cost? };
     let final_name = cli_name.unwrap_or(if script_name.is_empty() { raw_cmd.clone() } else { script_name });
     let final_out = cli_out.or(script_out);
     let final_err = cli_err.or(script_err);
@@ -158,14 +169,16 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
     let final_walltime = cli_walltime.or(script_walltime);
     let final_depend = cli_depend.map(|s| s.split(',').map(|v| v.trim().to_string()).collect()).unwrap_or(script_depend);
 
-    let job_id = utils::get_next_id();
-    let fbq_dir = utils::get_fbq_dir();
-    let job_file_path = fbq_dir.join("queue/new").join(format!("{}.job", job_id));
+    let queue = conf.queues.iter().find(|q| q.name == final_queue)
+        .ok_or_else(|| format!("Unknown queue '{}'", final_queue))?;
+    if final_cost == 0 || final_cost > conf.global_capacity || final_cost > queue.capacity {
+        return Err(format!("Cost {} exceeds global or queue capacity (global {}, queue {})", final_cost, conf.global_capacity, queue.capacity));
+    }
 
     let current_user = env::var("USER").or_else(|_| env::var("USERNAME")).unwrap_or_else(|_| "unknown".to_string());
     let hostname = process::Command::new("hostname").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_else(|_| "localhost".to_string());
 
-    let mut content = format!("id: {}\nname: {}\ncmd: {}\ncost: {}\nuser: {}\nqueue: {}\n", job_id, final_name, cmd, final_cost, current_user, final_queue);
+    let mut content = format!("name: {}\ncmd: {}\ncost: {}\nuser: {}\nqueue: {}\n", final_name, cmd, final_cost, current_user, final_queue);
     if let Some(o) = final_out { content.push_str(&format!("stdout: {}\n", o)); }
     if let Some(e) = final_err { content.push_str(&format!("stderr: {}\n", e)); }
     if let Some(w) = final_walltime { content.push_str(&format!("walltime: {}\n", w)); }
@@ -182,10 +195,13 @@ pub fn submit_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option<
 
     for (key, val) in env::vars() { content.push_str(&format!("env: {}={}\n", key, val)); }
 
-        fs::write(&job_file_path, content).expect("Failed to write job file");
+    Ok(content)
+}
 
-        println!("{}.master", job_id);
-
-    }
-
-    
+pub fn register_job(content: &str) -> io::Result<()> {
+    let id = utils::get_next_id();
+    let path = utils::get_fbq_dir().join("queue/new").join(format!("{}.job", id));
+    fs::write(path, format!("id: {}\n{}", id, content))?;
+    println!("{}.master", id);
+    Ok(())
+}

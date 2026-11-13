@@ -52,10 +52,14 @@ pub fn handle_stat(args: &[String], default_style: &str) {
     let new_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
     let running_entries: Vec<_> = fs::read_dir(fbq_dir.join("queue/running")).map(|d| d.filter_map(|e| e.ok()).collect()).unwrap_or_default();
 
-    let mut used_caps = HashMap::new();
+    let mut used_caps = HashMap::<String, usize>::new();
     let mut running_jobs = Vec::new();
     let mut pending_jobs = Vec::new();
-    let mut total_used = 0;
+    let mut total_used = 0usize;
+    let hold_reason = fs::read_to_string(fbq_dir.join("run/recovery.hold")).ok();
+    let recovery_held = hold_reason.is_some() || running_entries.iter().any(|entry| {
+        job::parse_job_file(&entry.path()).map(|j| j.status.as_deref() == Some("UNKNOWN")).unwrap_or(true)
+    });
 
     for entry in &running_entries {
         if let Ok(j) = job::parse_job_file(&entry.path()) {
@@ -64,8 +68,9 @@ pub fn handle_stat(args: &[String], default_style: &str) {
                 if jid_norm != fid { continue; } 
             }
             if let Some(ref u) = filter_user { if &j.user != u { continue; } }
-            *used_caps.entry(j.queue.clone()).or_insert(0) += j.cost;
-            total_used += j.cost;
+            let used = used_caps.entry(j.queue.clone()).or_insert(0);
+            *used = used.saturating_add(j.cost.max(1));
+            total_used = total_used.saturating_add(j.cost.max(1));
             running_jobs.push(j);
         }
     }
@@ -124,6 +129,7 @@ pub fn handle_stat(args: &[String], default_style: &str) {
             }
         } else {
             println!("FBQueue Status (Global Capacity: {}/{}):", total_used, conf.global_capacity);
+            if recovery_held { println!("Recovery hold: {}. New dispatch is paused. No automatic retry.", hold_reason.as_deref().unwrap_or("UNKNOWN execution")); }
             for q in &conf.queues {
                 let used = used_caps.get(&q.name).unwrap_or(&0);
                 println!("  Queue: {:<10} | Capacity: {:>2}/{:<2} | Priority: {:>3}", q.name, used, q.capacity, q.priority);
@@ -146,7 +152,7 @@ pub fn handle_stat(args: &[String], default_style: &str) {
                 for j in running_jobs {
                     let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
                     let walltime_str = if let Some(wt) = j.walltime { format!("/{}", wt) } else { "".to_string() };
-                    println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | TIME: {}{}s", j.id, j.name, j.user, j.queue, j.cost, elapsed, walltime_str);
+                    println!("  ID: {:>4} | NAME: {:<15} | USER: {:<10} | QUEUE: {:<10} | COST: {} | TIME: {}{}s | STATUS: {}", j.id, j.name, j.user, j.queue, j.cost.max(1), elapsed, walltime_str, j.status.as_deref().unwrap_or("RUNNING"));
                 }
             }
 
@@ -180,7 +186,8 @@ fn print_pbs_style(mut running: Vec<job::Job>, mut pending: Vec<job::Job>, histo
         for j in running {
             let elapsed = if let Some(start) = j.start_at { now - start } else { 0 };
             let time_use = format!("{:02}:{:02}:{:02}", elapsed / 3600, (elapsed % 3600) / 60, elapsed % 60);
-            println!("{:<16}  {:<16} {:<16}  {:<8} R {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), time_use, j.queue);
+            let state = if matches!(j.status.as_deref(), Some("UNKNOWN" | "INTERRUPTED")) { "H" } else { "R" };
+            println!("{:<16}  {:<16} {:<16}  {:<8} {} {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), time_use, state, j.queue);
         }
         pending.sort_by_key(|j| j.id.parse::<usize>().unwrap_or(0));
         for j in pending {
@@ -195,8 +202,8 @@ fn print_pbs_style(mut running: Vec<job::Job>, mut pending: Vec<job::Job>, histo
         for j in sorted_history {
             let status_char = match j.status.as_deref() {
                 Some("DONE") => "F",
-                Some("FAILED") | Some("CANCELLED") | Some("TIMEOUT") => "E",
-                _ => "F",
+                None => "F", // Legacy completed records may not carry status.
+                _ => "E", // Unknown outcomes, including INTERRUPTED, are not success.
             };
             println!("{:<16}  {:<16} {:<16}  {:<8} {} {:<5}", format!("{}.master", j.id), truncate(&j.name, 16), truncate(&j.user, 16), "0", status_char, j.queue);
         }

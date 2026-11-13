@@ -19,7 +19,11 @@ pub struct Config {
 pub fn get_config() -> Config {
     let fbq_dir = utils::get_fbq_dir();
     let config_path = fbq_dir.join("config");
-    
+
+    parse_config(&fs::read_to_string(config_path).unwrap_or_default())
+}
+
+fn parse_config(content: &str) -> Config {
     let mut default_queue = "default".to_string();
     let mut global_capacity = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(8);
     let mut inactivity_timeout = 300;
@@ -27,7 +31,7 @@ pub fn get_config() -> Config {
     let mut archive_interval_days = 30;
     let mut queues = Vec::new();
 
-    if let Ok(content) = fs::read_to_string(config_path) {
+    {
         let mut current_queue: Option<QueueConfig> = None;
         for line in content.lines() {
             let is_indented = line.starts_with(' ') || line.starts_with('\t');
@@ -51,15 +55,15 @@ pub fn get_config() -> Config {
                     capacity: global_capacity,
                     priority: 10,
                 });
-            } else if line.starts_with("capacity: ") {
-                let val = line[10..].trim().parse().unwrap_or(1);
+            } else if trimmed.starts_with("capacity: ") {
+                let val = trimmed[10..].trim().parse().unwrap_or(1);
                 if is_indented && current_queue.is_some() {
                     if let Some(ref mut q) = current_queue { q.capacity = val; }
                 } else {
                     global_capacity = val;
                 }
-            } else if line.starts_with("priority: ") {
-                let val = line[10..].trim().parse().unwrap_or(10);
+            } else if trimmed.starts_with("priority: ") {
+                let val = trimmed[10..].trim().parse().unwrap_or(10);
                 if let Some(ref mut q) = current_queue { q.priority = val; }
             }
         }
@@ -77,6 +81,53 @@ pub fn get_config() -> Config {
     }
 
     Config { default_queue, global_capacity, inactivity_timeout, history_limit, archive_interval_days, queues }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_config_provides_a_usable_default_queue() {
+        let conf = parse_config("");
+        assert_eq!(conf.default_queue, "default");
+        assert_eq!(conf.inactivity_timeout, 300);
+        assert_eq!(conf.history_limit, 100);
+        assert_eq!(conf.archive_interval_days, 30);
+        assert_eq!(conf.queues.len(), 1);
+        assert_eq!(conf.queues[0].name, conf.default_queue);
+        assert_eq!(conf.queues[0].capacity, conf.global_capacity);
+    }
+
+    #[test]
+    fn repeated_queue_definition_replaces_the_previous_one() {
+        let conf = parse_config("capacity: 8\ndefault_queue: batch\nqueue: batch\n  capacity: 2\nqueue: batch\n  capacity: 3\n  priority: 20\n");
+        assert_eq!(conf.queues.len(), 1);
+        assert_eq!(conf.queues[0].capacity, 3);
+        assert_eq!(conf.queues[0].priority, 20);
+    }
+
+    #[test]
+    fn missing_default_queue_is_added_without_removing_explicit_queues() {
+        let conf = parse_config("# comment\n\ncapacity: 6\ndefault_queue: fallback\nqueue: other\n  capacity: 2\n");
+        assert_eq!(conf.queues.len(), 2);
+        assert_eq!(conf.queues[1].name, "fallback");
+        assert_eq!(conf.queues[1].capacity, 6);
+    }
+
+    #[test]
+    fn documented_indented_queue_settings_are_applied() {
+        let conf = parse_config("capacity: 8\ndefault_queue: batch\ninactivity_timeout: 17\nhistory_limit: 12\narchive_interval_days: 3\nqueue: batch\n  capacity: 2\n  priority: 5\nqueue: urgent\n\tcapacity: 4\n\tpriority: 20\n");
+        assert_eq!(conf.global_capacity, 8);
+        assert_eq!(conf.inactivity_timeout, 17);
+        assert_eq!(conf.history_limit, 12);
+        assert_eq!(conf.archive_interval_days, 3);
+        assert_eq!(conf.queues.len(), 2);
+        assert_eq!(conf.queues[0].capacity, 2);
+        assert_eq!(conf.queues[0].priority, 5);
+        assert_eq!(conf.queues[1].capacity, 4);
+        assert_eq!(conf.queues[1].priority, 20);
+    }
 }
 
 fn add_or_replace_queue(queues: &mut Vec<QueueConfig>, q: QueueConfig) {

@@ -4,6 +4,9 @@ mod daemon;
 mod config;
 mod stat;
 mod handlers;
+mod invocation;
+#[cfg(target_os = "linux")]
+mod recovery;
 
 use std::env;
 use std::path::Path;
@@ -14,6 +17,21 @@ fn main() {
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("fbqueue");
+
+    // Unix needs argv[0] for symlink aliases. Windows checks the actual file,
+    // not an independently supplied argv[0], and never guesses on lookup error.
+    let executable = if cfg!(windows) {
+        Some(env::current_exe().unwrap_or_else(|error| {
+            eprintln!("Error: cannot identify Windows executable: {}", error);
+            std::process::exit(2);
+        }))
+    } else { None };
+    let actual_name = executable.as_ref().and_then(|path| path.file_stem()).and_then(|stem| stem.to_str());
+    let program_name = invocation::entrypoint_name(program_name, actual_name, cfg!(windows))
+        .unwrap_or_else(|message| {
+            eprintln!("Error: {}", message);
+            std::process::exit(2);
+        });
 
     let command = if program_name == "qsub" { "sub" }
     else if program_name == "qstat" { "stat" }
@@ -44,10 +62,12 @@ fn main() {
 fn print_help() {
     println!("FBQueue (Forblaze Queue) v{} - Simple local job scheduler", env!("CARGO_PKG_VERSION"));
     println!("Usage:");
-    println!("  fbqueue sub [options] <command> [args...] (alias: qsub)");
-    println!("  fbqueue stat [--style pbs|default] [-H [N]] (alias: qstat)");
-    println!("  fbqueue del <job_id>                      (alias: qdel)");
-    println!("  fbqueue daemon <start|stop|status>");
+    let frontend = if cfg!(windows) { "fbqueue.exe" } else { "fbqueue" };
+    let suffix = |name: &str| if cfg!(windows) { String::new() } else { format!(" (alias: {})", name) };
+    println!("  {} sub [options] <command> [args...]{}", frontend, suffix("qsub"));
+    println!("  {} stat [--style pbs|default] [-H [N]]{}", frontend, suffix("qstat"));
+    println!("  {} del <job_id>{}", frontend, suffix("qdel"));
+    println!("  {} daemon <start|stop|status>", frontend);
     println!("\nOptions for sub:");
     println!("  -q QUEUE        Queue name");
     println!("  -c COST         Resource cost (default: 1)");

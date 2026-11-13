@@ -13,6 +13,14 @@ jobs:
           override: true
           components: rustfmt, clippy
       - name: Build
-        run: cargo build --release
-      - name: Test
-        run: cargo test --quiet
+        run: cargo build --release --locked
+      - name: Unit tests
+        run: cargo test --locked
+      - name: Linux integration tests
+        timeout-minutes: 10
+        run: bash tests/run_tests.sh
+      - name: Test harness verdict regression
+        run: python3 -B tests/test_harness_verdicts.py
+      - name: Test harness negative controls
+        timeout-minutes: 3
+        run: python3 -B tests/test_harness.py

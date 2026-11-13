@@ -1,3 +1,4 @@
+#[cfg(not(target_os = "linux"))]
 use std::env;
 use std::fs;
 use std::process;
@@ -12,6 +13,15 @@ use std::io::Write;
 #[cfg(unix)]
 unsafe extern "C" { fn setsid() -> i32; }
 
+#[cfg(target_os = "linux")]
+pub fn ensure_daemon() {
+    if let Err(error) = crate::recovery::ensure_daemon() {
+        eprintln!("Error: cannot ensure daemon: {}", error);
+        process::exit(1);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
 pub fn ensure_daemon() {
     let lock_file = utils::get_fbq_dir().join("run/daemon.pid");
     let is_running = if let Ok(pid_str) = fs::read_to_string(&lock_file) {
@@ -37,7 +47,16 @@ pub fn ensure_daemon() {
 }
 
 pub fn run_daemon() {
+    utils::init_dirs();
     let fbq_dir = utils::get_fbq_dir();
+    #[cfg(target_os = "linux")]
+    let daemon_guard = match crate::recovery::DaemonGuard::acquire(&fbq_dir) {
+        Ok(Some(guard)) => guard,
+        Ok(None) => return,
+        Err(error) => { eprintln!("Error: cannot own daemon: {}", error); process::exit(1); }
+    };
+    #[cfg(not(target_os = "linux"))]
+    {
     let lock_file = fbq_dir.join("run/daemon.pid");
     if let Ok(pid_str) = fs::read_to_string(&lock_file) {
         if let Ok(pid) = pid_str.trim().parse::<u32>() {
@@ -56,6 +75,7 @@ pub fn run_daemon() {
             fs::rename(entry.path(), dest).ok();
         }
     }
+    }
     
     // (JobID, ChildProcess, CostUsed, QueueName, StartTime, Walltime)
     let mut running_jobs: Vec<(String, process::Child, usize, String, u64, Option<u64>)> = Vec::new();
@@ -64,20 +84,55 @@ pub fn run_daemon() {
     loop {
         let conf = config::get_config();
         let now = utils::get_now();
+        #[cfg(target_os = "linux")]
+        let mut recovery_hold = false;
+        #[cfg(not(target_os = "linux"))]
+        let recovery_hold = false;
         
         if let Ok(entries) = fs::read_dir(fbq_dir.join("queue/cancel")) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let id = entry.file_name().to_str().unwrap().trim_end_matches(".job").to_string();
+                #[cfg(target_os = "linux")]
+                if fs::symlink_metadata(fbq_dir.join("queue/running").join(entry.file_name())).is_ok()
+                    && !running_jobs.iter().any(|(rid, _, _, _, _, _)| rid == &id) {
+                    // No verified child handle: retain the request and evidence.
+                    continue;
+                }
                 if let Some(pos) = running_jobs.iter().position(|(rid, _, _, _, _, _)| rid == &id) {
                     let (rid, mut child, _, _, _, _) = running_jobs.remove(pos);
                     let _ = fs::remove_file(fbq_dir.join("run").join(format!("nodefile.{}", rid)));
                     kill_process_tree(&mut child);
-                    if let Ok(mut f) = fs::OpenOptions::new().append(true).open(fbq_dir.join("queue/running").join(entry.file_name())) {
-                        let _ = writeln!(f, "status: CANCELLED");
-                    }
-                    fs::rename(fbq_dir.join("queue/running").join(entry.file_name()), fbq_dir.join("queue/failed").join(entry.file_name())).ok();
                 }
-                let _ = fs::remove_file(entry.path());
+                let running_path = fbq_dir.join("queue/running").join(entry.file_name());
+                let mut report_error = |error: std::io::Error| {
+                    eprintln!("Failed to retain cancelled job {}: {}", id, error);
+                    #[cfg(target_os = "linux")]
+                    {
+                        recovery_hold = true;
+                        crate::recovery::hold(&fbq_dir, &format!("cancellation for job {} needs intervention: {}", id, error));
+                    }
+                };
+                let source = match fs::symlink_metadata(&running_path) {
+                    Ok(_) => running_path,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => entry.path(),
+                    Err(error) => { report_error(error); continue; }
+                };
+                let metadata = match source.metadata() {
+                    Ok(metadata) => metadata,
+                    Err(error) => { report_error(error); continue; }
+                };
+                if metadata.len() > 0 {
+                    let result = retain_terminal(&fbq_dir, &source, "queue/failed", &format!("status: CANCELLED\nend_at: {}", now));
+                    match result {
+                        Ok(()) => { if source != entry.path() { let _ = fs::remove_file(entry.path()); } }
+                        Err(error) => report_error(error),
+                    }
+                } else if source == entry.path() {
+                    // A completed job may win the cancellation race. Never erase history.
+                    if let Err(error) = fs::remove_file(entry.path()) { report_error(error); }
+                } else {
+                    report_error(std::io::Error::new(std::io::ErrorKind::InvalidData, "empty running record; retaining cancellation request"));
+                }
             }
         }
 
@@ -91,10 +146,11 @@ pub fn run_daemon() {
                     let _ = fs::remove_file(fbq_dir.join("run").join(format!("nodefile.{}", job_id)));
                     let fname = format!("{}.job", job_id);
                     let job_path = fbq_dir.join("queue/running").join(&fname);
-                    if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&job_path) {
-                        let _ = writeln!(f, "exit_reason: walltime_exceeded\nend_at: {}\nstatus: TIMEOUT", now);
+                    if let Err(error) = retain_terminal(&fbq_dir, &job_path, "queue/failed", &format!("exit_reason: walltime_exceeded\nend_at: {}\nstatus: TIMEOUT", now)) {
+                        eprintln!("Cannot persist timeout outcome: {}", error);
+                        #[cfg(target_os = "linux")]
+                        { recovery_hold = true; crate::recovery::hold(&fbq_dir, &format!("cannot persist timeout outcome: {}", error)); }
                     }
-                    fs::rename(job_path, fbq_dir.join("queue/failed").join(&fname)).ok();
                     continue;
                 }
             }
@@ -112,13 +168,29 @@ pub fn run_daemon() {
                 let exit_code = status.code().unwrap_or(-1);
                 let dest_dir = if status.success() { "queue/done" } else { "queue/failed" };
                 let status_str = if status.success() { "DONE" } else { "FAILED" };
-                if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&rpath) {
-                    let _ = writeln!(f, "end_at: {}\nexit_code: {}\nstatus: {}", now, exit_code, status_str);
+                if let Err(error) = retain_terminal(&fbq_dir, &rpath, dest_dir, &format!("end_at: {}\nexit_code: {}\nstatus: {}", now, exit_code, status_str)) {
+                    eprintln!("Cannot persist completion outcome: {}", error);
+                    #[cfg(target_os = "linux")]
+                    { recovery_hold = true; crate::recovery::hold(&fbq_dir, &format!("cannot persist completion outcome: {}", error)); }
                 }
-                fs::rename(rpath, fbq_dir.join(dest_dir).join(&fname)).ok();
             } else { i += 1; }
         }
 
+        #[cfg(target_os = "linux")]
+        {
+            // Scan after cancellation/completion transitions so a failed move
+            // cannot release capacity and dispatch more work in this same pass.
+            let tracked = running_jobs.iter().map(|(id, _, _, _, _, _)| id.as_str()).collect();
+            recovery_hold |= crate::recovery::scan(&fbq_dir, &tracked, daemon_guard.boot());
+            if !recovery_hold {
+                if let Err(error) = crate::recovery::clear_hold(&fbq_dir) {
+                    recovery_hold = true;
+                    crate::recovery::hold(&fbq_dir, &format!("cannot clear recovery hold: {}", error));
+                }
+            }
+        }
+
+        if !recovery_hold {
         if let Ok(entries) = fs::read_dir(fbq_dir.join("queue/new")) {
             let mut job_list = Vec::new();
             for entry in entries.filter_map(|e| e.ok()) {
@@ -143,18 +215,34 @@ pub fn run_daemon() {
             job_list.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.3.cmp(&b.3)));
 
             for (entry, j, _, _) in job_list {
-                let q_limit = conf.queues.iter().find(|q| q.name == j.queue).map(|q| q.capacity).unwrap_or(1);
-                let q_used: usize = running_jobs.iter().filter(|(_, _, _, qn, _, _)| qn == &j.queue).map(|(_, _, c, _, _, _)| *c).sum();
-                let global_used: usize = running_jobs.iter().map(|(_, _, c, _, _, _)| *c).sum();
-
-                let can_run_queue = (q_used == 0) || (q_used + j.cost <= q_limit);
-                let can_run_global = (global_used == 0) || (global_used + j.cost <= conf.global_capacity);
+                let Some(queue) = conf.queues.iter().find(|q| q.name == j.queue) else { continue; };
+                let q_limit = queue.capacity;
+                let cost = j.cost.max(1);
+                let q_used = running_jobs.iter().filter(|(_, _, _, qn, _, _)| qn == &j.queue)
+                    .try_fold(0usize, |sum, (_, _, c, _, _, _)| sum.checked_add(*c));
+                let global_used = running_jobs.iter()
+                    .try_fold(0usize, |sum, (_, _, c, _, _, _)| sum.checked_add(*c));
+                let can_run_queue = q_used.and_then(|used| q_limit.checked_sub(used)).map(|free| cost <= free).unwrap_or(false);
+                let can_run_global = global_used.and_then(|used| conf.global_capacity.checked_sub(used)).map(|free| cost <= free).unwrap_or(false);
 
                 if can_run_queue && can_run_global {
                     let rpath = fbq_dir.join("queue/running").join(entry.file_name());
                     if fs::rename(entry.path(), &rpath).is_ok() {
-                        if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&rpath) {
-                            let _ = writeln!(f, "start_at: {}", now);
+                        let launch_record = (|| -> std::io::Result<()> {
+                            let mut f = fs::OpenOptions::new().append(true).open(&rpath)?;
+                            writeln!(f, "start_at: {}", now)?;
+                            #[cfg(target_os = "linux")]
+                            writeln!(f, "execution_boot_id: {}", daemon_guard.boot())?;
+                            f.sync_all()?;
+                            #[cfg(target_os = "linux")]
+                            { fs::File::open(fbq_dir.join("queue/running"))?.sync_all()?;
+                              fs::File::open(fbq_dir.join("queue/new"))?.sync_all()?; }
+                            Ok(())
+                        })();
+                        if let Err(error) = launch_record {
+                            eprintln!("Cannot persist launch intent; holding job {}: {}", j.id, error);
+                            // End this scheduling pass: the next recovery scan holds it.
+                            break;
                         }
 
                         let resolve_path = |p: Option<String>, suffix: &str| {
@@ -196,7 +284,14 @@ pub fn run_daemon() {
                             #[cfg(unix)]
                             {
                                 use std::os::unix::process::CommandExt;
-                                unsafe { child_cmd.pre_exec(|| { setsid(); Ok(()) }); }
+                                #[cfg(target_os = "linux")]
+                                let lock_fd = daemon_guard.fd();
+                                unsafe { child_cmd.pre_exec(move || {
+                                    #[cfg(target_os = "linux")]
+                                    libc::close(lock_fd);
+                                    if setsid() < 0 { return Err(std::io::Error::last_os_error()); }
+                                    Ok(())
+                                }); }
                             }
 
                             #[cfg(windows)]
@@ -228,16 +323,28 @@ pub fn run_daemon() {
                                 .env("PBS_ENVIRONMENT", "PBS_BATCH")
                                 .stdout(out_f).stderr(err_f);
 
-                            if let Ok(child) = child_cmd.spawn() {
-                                running_jobs.push((j.id, child, j.cost, j.queue, now, j.walltime));
-                            } else { fs::rename(rpath, fbq_dir.join("queue/failed").join(entry.file_name())).ok(); }
+                            match child_cmd.spawn() {
+                                Ok(child) => running_jobs.push((j.id, child, cost, j.queue, now, j.walltime)),
+                                Err(error) => {
+                                    let result = retain_terminal(&fbq_dir, &rpath, "queue/failed", &format!("status: FAILED\nexit_reason: spawn_failed\nspawn_error: {}\nend_at: {}", error, now));
+                                    let _ = fs::remove_file(&nodefile_path);
+                                    if let Err(error) = result {
+                                        eprintln!("Cannot record spawn failure for {}: {}", j.id, error);
+                                        #[cfg(target_os = "linux")]
+                                        crate::recovery::hold(&fbq_dir, &format!("cannot persist spawn failure: {}", error));
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        if running_jobs.is_empty() && fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.count()).unwrap_or(0) == 0 { 
+        }
+
+        if !recovery_hold && running_jobs.is_empty() && fs::read_dir(fbq_dir.join("queue/new")).map(|d| d.count()).unwrap_or(0) == 0 {
             idle_seconds += 1; 
             if idle_seconds % 10 == 0 {
                 // Perform archiving and pruning during idle time
@@ -248,11 +355,39 @@ pub fn run_daemon() {
             idle_seconds = 0; 
         }
         if idle_seconds > conf.inactivity_timeout { 
-            let _ = fs::remove_file(&lock_file); 
-            break; 
+            #[cfg(target_os = "linux")]
+            let should_exit = match daemon_guard.retire().and_then(|_| crate::recovery::has_work(&fbq_dir)) {
+                Ok(false) => true,
+                Ok(true) => {
+                    if let Err(error) = daemon_guard.stay() { eprintln!("Cannot clear retirement: {}", error); }
+                    false
+                }
+                Err(error) => { eprintln!("Cannot retire daemon safely: {}", error); false }
+            };
+            #[cfg(not(target_os = "linux"))]
+            let should_exit = { let _ = fs::remove_file(fbq_dir.join("run/daemon.pid")); true };
+            if should_exit { break; }
+            idle_seconds = 0;
         }
         thread::sleep(Duration::from_secs(1));
     }
+}
+
+fn retain_terminal(root: &Path, source: &Path, directory: &str, metadata: &str) -> std::io::Result<()> {
+    let name = source.file_name().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "missing job filename"))?;
+    #[cfg(target_os = "linux")]
+    if crate::recovery::history_conflict(root, name)? {
+        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "conflicting terminal history; retaining both records"));
+    }
+    let mut file = fs::OpenOptions::new().append(true).open(source)?;
+    writeln!(file, "\n{}", metadata)?;
+    file.sync_all()?;
+    fs::rename(source, root.join(directory).join(name))?;
+    #[cfg(target_os = "linux")]
+    {
+        crate::recovery::sync_transition(root, source.parent().unwrap(), &root.join(directory))?;
+    }
+    Ok(())
 }
 
 fn kill_process_tree(child: &mut process::Child) {
