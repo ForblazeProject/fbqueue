@@ -10,7 +10,7 @@ This guide is for users who are accustomed to these traditional schedulers and w
 
 On Linux, you can interact with FBQueue using the familiar `qsub`, `qstat`, and `qdel` commands by creating symbolic links to the `fbqueue` binary.
 
-In Windows v0.9.6, aliases are intentionally disabled.
+On Windows, aliases are intentionally disabled starting with v0.9.6.
 Keep the filename `fbqueue.exe` and use `sub`, `stat` and `del` explicitly;
 `fbqueue.exe stat --style pbs` retains PBS-style formatting. Copied/renamed aliases
 are rejected with status 2, not interpreted as commands or jobs. Linux aliases
@@ -103,7 +103,7 @@ Job id            Name             User              Time Use S Queue
     - `E`: Failed, timed out, cancelled, or interrupted (history or job-ID lookup)
 - **Time Use**: Displays the elapsed walltime for running jobs.
 
-In Linux v0.9.6, `UNKNOWN` is not successful completion and
+On Linux since v0.9.6, `UNKNOWN` is not successful completion and
 pauses new dispatch globally. A recovered unknown job is not automatically
 re-executed or safely cancellable through an old PID. `INTERRUPTED` history does
 not satisfy successful-completion dependencies. `H` is FBQueue's conservative

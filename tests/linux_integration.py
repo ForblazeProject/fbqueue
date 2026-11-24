@@ -388,7 +388,7 @@ printf 'stderr\\n' >&2
             self.assertIn(name, output)
             self.assertNotIn(other, output)
             self.assertRegex(output, r"\sF\s+batch")
-        self.assertNotIn("FirstJob", self.cli("99999", tool="qstat"))
+        self.assertNotIn("FirstJob", self.cli("99999", tool="qstat", rc=1))
         self.assertIn("FirstJob", self.cli("stat", first))
 
     def test_history_limit_user_filter_and_active_exclusion(self):
@@ -1039,7 +1039,7 @@ printf 'stderr\\n' >&2
             self.wait_state(jid, "done")
 
 
-def main():
+def main(case_class=SafeCase, method_prefix="test_"):
     global BINARY, ROOT, KEEP, INJECT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", default=os.environ.get("FBQUEUE_TEST_BINARY"))
@@ -1066,7 +1066,9 @@ def main():
         raise KeyboardInterrupt("signal %s" % signum)
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
-    names = unittest.defaultTestLoader.getTestCaseNames(SafeCase)
+    loader = unittest.TestLoader()
+    loader.testMethodPrefix = method_prefix
+    names = loader.getTestCaseNames(case_class)
     if args.only:
         names = [name for name in names if any(name == x or name == "test_" + x for x in args.only)]
         if len(names) != len(set(args.only)):
@@ -1075,7 +1077,7 @@ def main():
     result = None
     try:
         result = unittest.TextTestRunner(verbosity=2).run(
-            unittest.TestSuite(SafeCase(name) for name in names))
+            unittest.TestSuite(case_class(name) for name in names))
         for test, details in result.expectedFailures:
             print("XFAIL %s: %s" % (test.id(), details.strip().splitlines()[-1]))
         # unittest records each failing subtest separately; count parent cases

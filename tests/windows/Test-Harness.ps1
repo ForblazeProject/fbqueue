@@ -53,7 +53,7 @@ Need ($bound.output_directory -ceq 'explicit results path') 'Explicit output dir
 $declared=[regex]::Match($mainText,'\$catalog=@\(([^\r\n]+)\)').Groups[1].Value
 $names=@([regex]::Matches($declared,"'([^']+)'")|ForEach-Object {$_.Groups[1].Value})
 $implemented=@([regex]::Matches($workerText,"(?m)^        '([^']+)' \{")|ForEach-Object {$_.Groups[1].Value})
-Need ($names.Count -eq 19 -and @($names|Select-Object -Unique).Count -eq 19 -and @(Compare-Object $names $implemented).Count -eq 0) 'Case catalog and worker implementations must match exactly'
+Need ($names.Count -eq 21 -and @($names|Select-Object -Unique).Count -eq 21 -and @(Compare-Object $names $implemented).Count -eq 0) 'Case catalog and worker implementations must match exactly'
 $tokens=$null; $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($workerText,[ref]$tokens,[ref]$errors)
 Need (@($errors).Count -eq 0) 'Worker syntax'
@@ -89,4 +89,4 @@ try {
     Need ((Submit-Job @('-N','probe','cmd')) -ceq '12') 'Submit helper ID extraction'
     Need ($script:captured.Count -eq 4 -and $script:captured[0] -eq 'sub') 'Submission options must remain individual arguments'
 } finally { Remove-Item -Recurse -Force $helperRoot }
-Write-Host 'PASS: early parameter binding, protocol/verdicts, deliberate negative controls, C# compilation/quoting, 19-case catalog, fixture/config/metadata/submission helpers. No Windows product execution claimed.'
+Write-Host 'PASS: early parameter binding, protocol/verdicts, deliberate negative controls, C# compilation/quoting, 21-case catalog, fixture/config/metadata/submission helpers. No Windows product execution claimed.'

@@ -1,8 +1,9 @@
-# Linux integration tests (v0.9.6)
+# Linux integration tests
 
 ```sh
 cargo build --release
 bash tests/run_tests.sh                 # 52 real-binary cases
+python3 -B tests/direct_execution.py    # 4 direct execution regressions
 bash tests/test_id_filter.sh            # focused active/pending/history ID filtering
 python3 tests/test_harness.py           # negative controls for the harness itself
 python3 -B tests/test_harness_verdicts.py # optimized-Python false-success regression
@@ -26,13 +27,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/run_tests_core.ps1
 ```
 
 The Windows 10/11 kit uses Windows PowerShell 5.1 and compiled C# native helpers,
-not Python or Pester. It provides 19 cases with explicit Development/Released095
-profiles and per-case Job Objects. It returns `FBQueue-Windows-Results.zip`,
-including binary SHA-256, case verdicts and cleanup accounting, but no raw job
-environment dumps. The pre-version-bump implementation prepared for v0.9.6 was rebuilt on Windows
-AMD64/PowerShell 5.1 and passed 19/19 native cases on 2026-11-13, including alias
-rejection and explicit PBS history/filter checks. No cases were skipped or left
-unexecuted. See `../docs/WINDOWS_VERIFICATION.md` for evidence and scope.
+not Python or Pester. It provides 21 cases with explicit Development/Released095
+profiles and per-case Job Objects. It returns `FBQueue-Windows-Results.zip` with
+binary and source-manifest hashes, verdicts, and cleanup accounting, but no raw
+job environment dumps. The v0.9.7 candidate passed 21/21 cases after a native
+build from source. See [Windows verification evidence](../docs/WINDOWS_VERIFICATION.md).
 Parser/compiler/protocol checks on Linux do not count as Windows product passes. Test-only Job Objects do
 not add Linux-equivalent recovery or containment to FBQueue itself.
 

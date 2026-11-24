@@ -46,11 +46,11 @@ v0.9.6 introduces the following behavior changes compared with v0.9.5:
 ### Installation
 
 #### Linux
-Download the v0.9.6 pre-built static binary and place it in your `$PATH`:
+Download the v0.9.7 pre-built static binary and place it in your `$PATH`:
 
 ```bash
 # 1. Download
-wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.6/fbqueue-linux-x64.tar.gz
+wget https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.7/fbqueue-linux-x64.tar.gz
 
 # 2. Extract and move
 tar -xzvf fbqueue-linux-x64.tar.gz
@@ -63,11 +63,13 @@ ln -s ~/bin/fbqueue ~/bin/qstat
 ln -s ~/bin/fbqueue ~/bin/qdel
 ```
 
+Non-interactive SSH commands may not inherit your login shell's `PATH`. Use the absolute path to `fbqueue` (for example, `/home/your-user/.local/bin/fbqueue`), or explicitly add its install directory to `PATH` on the remote side.
+
 #### Windows
-1. Download [fbqueue-windows-x64.zip for v0.9.6](https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.6/fbqueue-windows-x64.zip).
+1. Download [fbqueue-windows-x64.zip for v0.9.7](https://github.com/ForblazeProject/fbqueue/releases/download/v0.9.7/fbqueue-windows-x64.zip).
 2. Extract the ZIP and move `fbqueue.exe` to a folder in your `Path`.
 
-**Windows CLI in v0.9.6:** use `fbqueue.exe sub`, `fbqueue.exe stat`,
+**Windows CLI (since v0.9.6):** use `fbqueue.exe sub`, `fbqueue.exe stat`,
 `fbqueue.exe del` and `fbqueue.exe daemon`. Renamed/copied aliases such as
 `qsub.exe`, `qstat.exe` and `qdel.exe` are rejected with status 2 before state
 initialization. PBS-style output remains available with `fbqueue.exe stat --style pbs`.
@@ -77,12 +79,7 @@ Windows has native job execution, but not the Linux recovery protocol introduced
 It still replays unresolved running records on daemon restart; duplicate work is
 possible. Windows `daemon stop` uses `taskkill /F /T` and can also kill workers,
 unlike the Linux v0.9.6 command. See [Windows support and limitations](MANUAL.md#7-windows-implementation-and-guidelines).
-The implementation prepared for v0.9.6 was rebuilt and tested on Windows AMD64
-with Windows PowerShell 5.1 on 2026-11-13: all 19 cases passed, with no skips or
-errors. This includes PBS-style history/ID filtering and rejection of renamed
-aliases. See [Windows verification evidence](https://github.com/ForblazeProject/fbqueue/blob/v0.9.6/docs/WINDOWS_VERIFICATION.md) for
-the exact pre-version-bump snapshot and limits, rather than assuming every
-release artifact or environment has been independently tested.
+The v0.9.7 candidate passed all 21 Windows x64 cases after a native build from source. See [Windows verification evidence](https://github.com/ForblazeProject/fbqueue/blob/v0.9.7/docs/WINDOWS_VERIFICATION.md) for the tested snapshot and scope. This was not a test of the GitHub release ZIP.
 
 ### Job Submission (`sub`)
 FBQueue automatically handles path prefixes and shell selection.
@@ -118,13 +115,15 @@ fbqueue sub ./calc.sh
 ## Windows testing
 
 Windows real-machine tests and returnable diagnostic ZIPs are described in
-[the Windows test kit guide](https://github.com/ForblazeProject/fbqueue/blob/v0.9.6/tests/windows/README-JA.md). The kit can build a source
-snapshot or test an existing `.exe`. Select `Development` for the v0.9.6 behavior
-and `Released095` only for the older v0.9.5 release. These are test-profile names,
-not automatic version detection: the pre-release snapshot used for Windows
-verification still reported v0.9.5 before the version bump.
+[the Windows test kit guide](https://github.com/ForblazeProject/fbqueue/blob/v0.9.7/tests/windows/README-JA.md). Use the `Development` profile for v0.9.7; `Released095` is only for v0.9.5. The kit does not select a profile based on the version banner.
 
 ## 📜 Change Log
+
+### v0.9.7
+
+- Run an executable directly with `fbqueue sub --exec /bin/echo agent-ok` on Linux. Arguments are passed separately without shell interpretation. For shell syntax, request a shell explicitly, e.g. `fbqueue sub --exec sh -c 'echo agent-ok'`. On Windows, `fbqueue.exe sub --exec C:\Windows\System32\hostname.exe` runs a native executable. Use normal script mode for `.bat`, `.cmd`, and `.ps1` files. Existing script submissions retain their behavior.
+- `fbqueue stat --help` prints usage. A missing job ID returns exit status 1; invalid syntax or unknown options return 2. `fbqueue stat` still lists the queue.
+- `fbqueue stat 2.master --json` returns one object with `id`, `state`, `exit_code`, `stdout`, and `stderr`. An unavailable job exit code is `null`. A successful lookup returns 0 even when the job itself failed.
 
 ### v0.9.6
 

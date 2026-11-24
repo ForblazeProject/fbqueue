@@ -20,11 +20,12 @@ pub fn handle_sub(args: &[String]) {
     let mut cli_walltime: Option<u64> = None;
     let mut cli_depend: Option<String> = None;
     let mut cli_start_after: Option<u64> = None;
+    let mut direct = false;
 
     while start_idx < args.len() {
         let arg = &args[start_idx];
         if arg == "--help" || arg == "-h" {
-            println!("Usage: {} [options] <command> [args...]\n  -c COST  Resource cost (positive integer; default: 1)\n  -q QUEUE  Queue name\n  --range N-M  Batch expansion\n  --list A,B  List expansion", usage);
+            println!("Usage: {} [options] <command> [args...]\n  --exec  Run an executable directly with separate arguments\n  -c COST  Resource cost (positive integer; default: 1)\n  -q QUEUE  Queue name\n  --range N-M  Batch expansion\n  --list A,B  List expansion", usage);
             return;
         }
         if arg == "--" {
@@ -34,7 +35,10 @@ pub fn handle_sub(args: &[String]) {
         if matches!(arg.as_str(), "-c" | "--cost" | "-q" | "--queue" | "-N" | "-J" | "-W" | "-hold_jid" | "-a" | "-o" | "-e" | "--range" | "--list") && start_idx + 1 == args.len() {
             submission_error(&format!("Missing value for option '{}'", arg));
         }
-        if (arg == "-c" || arg == "--cost") && start_idx + 1 < args.len() {
+        if arg == "--exec" {
+            direct = true;
+            start_idx += 1;
+        } else if (arg == "-c" || arg == "--cost") && start_idx + 1 < args.len() {
             cli_cost = Some(job::parse_cost(&args[start_idx+1]).unwrap_or_else(|e| submission_error(&e)));
             start_idx += 2;
         } else if (arg == "-q" || arg == "--queue") && start_idx + 1 < args.len() {
@@ -99,7 +103,7 @@ pub fn handle_sub(args: &[String]) {
     utils::init_dirs();
     let mut prepared = Vec::new();
     for val in values {
-        prepared.push(job::prepare_job(cmd_tmpl, args_tmpl, &cwd, val.as_deref(), cli_cost, cli_name.clone(), cli_out.clone(), cli_err.clone(), cli_queue.clone(), cli_walltime, cli_depend.clone(), cli_start_after).unwrap_or_else(|e| submission_error(&e)));
+        prepared.push(job::prepare_job(cmd_tmpl, args_tmpl, &cwd, val.as_deref(), cli_cost, cli_name.clone(), cli_out.clone(), cli_err.clone(), cli_queue.clone(), cli_walltime, cli_depend.clone(), cli_start_after, direct).unwrap_or_else(|e| submission_error(&e)));
     }
     for content in prepared {
         job::register_job(&content).unwrap_or_else(|e| submission_error(&e.to_string()));

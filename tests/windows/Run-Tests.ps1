@@ -17,7 +17,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 $runId=[Guid]::NewGuid().ToString('N')
 $reportRoot=Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ('run-'+$runId)
 New-Item -ItemType Directory -Force -Path $reportRoot|Out-Null
-$catalog=@('help','batch_cmd_bat','powershell_environment_nodefile','unicode_script_path','failure_exit_code','capacity_fifo','dependency_success','delayed_start','range_list','pbs_explicit_history_filters','windows_rejects_aliases','pending_cancel_history','running_cancel_tree','walltime_tree','windows_daemon_stop_tree','development_validation','first_run_defaults','archive_if_tar_available','harness_containment')
+$catalog=@('help','batch_cmd_bat','powershell_environment_nodefile','unicode_script_path','failure_exit_code','stat_contract_097','direct_executable_097','capacity_fifo','dependency_success','delayed_start','range_list','pbs_explicit_history_filters','windows_rejects_aliases','pending_cancel_history','running_cancel_tree','walltime_tree','windows_daemon_stop_tree','development_validation','first_run_defaults','archive_if_tar_available','harness_containment')
 $records=@()
 $report=[ordered]@{schema='fbqueue.windows.run.v1'; harness_version=3; run_id=$runId; started_utc=[DateTime]::UtcNow.ToString('o'); finished_utc=$null; profile=$Profile; catalog_count=$catalog.Count; selection=@($Case); binary=$null; binary_sha256=$null; built_from_source=$false; source_manifest_sha256=$null; platform=[Environment]::OSVersion.VersionString; architecture=$env:PROCESSOR_ARCHITECTURE; powershell=$PSVersionTable.PSVersion.ToString(); clr=[Environment]::Version.ToString(); bootstrap_error=$null; scratch=$null; records=@(); summary=$null}
 function Log([string]$Message) {

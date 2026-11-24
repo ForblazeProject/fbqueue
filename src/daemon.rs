@@ -13,6 +13,67 @@ use std::io::Write;
 #[cfg(unix)]
 unsafe extern "C" { fn setsid() -> i32; }
 
+// Command's Unix execvp path may run an executable text file through a shell
+// on ENOEXEC. Use execve for direct jobs, including each PATH candidate.
+#[cfg(unix)]
+fn disable_shell_fallback(command: &mut process::Command) -> std::io::Result<()> {
+    use std::ffi::{CString, OsString};
+    use std::os::unix::{ffi::OsStrExt, process::CommandExt};
+
+    let mut env: std::collections::BTreeMap<_, _> = std::env::vars_os().collect();
+    for (key, value) in command.get_envs() {
+        if let Some(value) = value { env.insert(key.to_owned(), value.to_owned()); }
+        else { env.remove(key); }
+    }
+    let program = command.get_program();
+    let candidates = if program.as_bytes().contains(&b'/') {
+        vec![PathBuf::from(program)]
+    } else {
+        let path = env.get(&OsString::from("PATH")).cloned().unwrap_or_else(|| "/bin:/usr/bin".into());
+        std::env::split_paths(&path).map(|dir| dir.join(program)).collect()
+    };
+    let candidates = candidates.iter().map(|p| CString::new(p.as_os_str().as_bytes())).collect::<Result<Vec<_>, _>>()?;
+    let argv = std::iter::once(program).chain(command.get_args())
+        .map(|s| CString::new(s.as_bytes())).collect::<Result<Vec<_>, _>>()?;
+    let envp = env.into_iter().map(|(mut key, value)| {
+        key.push("=");
+        key.push(value);
+        CString::new(key.as_bytes())
+    }).collect::<Result<Vec<_>, _>>()?;
+
+    struct ExecArray {
+        _strings: Vec<CString>,
+        pointers: Vec<*const libc::c_char>,
+    }
+    // Pointers refer only to the owned heap allocations (or are null).
+    // Neither array is mutated after construction.
+    unsafe impl Send for ExecArray {}
+    unsafe impl Sync for ExecArray {}
+    impl ExecArray {
+        fn new(strings: Vec<CString>) -> Self {
+            let pointers = strings.iter().map(|s| s.as_ptr()).chain(std::iter::once(std::ptr::null())).collect();
+            Self { _strings: strings, pointers }
+        }
+        fn as_ptr(&self) -> *const *const libc::c_char { self.pointers.as_ptr() }
+    }
+    let argv = ExecArray::new(argv);
+    let envp = ExecArray::new(envp);
+    unsafe { command.pre_exec(move || {
+        let mut denied = false;
+        for path in &candidates {
+            libc::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr());
+            let error = std::io::Error::last_os_error();
+            match error.raw_os_error() {
+                Some(libc::ENOENT | libc::ENOTDIR) => (),
+                Some(libc::EACCES) => denied = true,
+                _ => return Err(error),
+            }
+        }
+        Err(std::io::Error::from_raw_os_error(if denied { libc::EACCES } else { libc::ENOENT }))
+    }); }
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 pub fn ensure_daemon() {
     if let Err(error) = crate::recovery::ensure_daemon() {
@@ -261,7 +322,7 @@ pub fn run_daemon() {
                                         else { fs::OpenOptions::new().create(true).append(true).open(&stderr_path).unwrap_or(out_f.try_clone().unwrap()) };
 
                             let script_path = if Path::new(&j.cmd).is_absolute() { PathBuf::from(&j.cmd) } else { j.cwd.join(&j.cmd) };
-                            let is_file = script_path.is_file();
+                            let is_file = !j.direct && script_path.is_file();
                             
                             #[cfg(unix)]
                             let mut child_cmd = if is_file {
@@ -323,7 +384,11 @@ pub fn run_daemon() {
                                 .env("PBS_ENVIRONMENT", "PBS_BATCH")
                                 .stdout(out_f).stderr(err_f);
 
-                            match child_cmd.spawn() {
+                            #[cfg(unix)]
+                            let prepared = if j.direct { disable_shell_fallback(&mut child_cmd) } else { Ok(()) };
+                            #[cfg(windows)]
+                            let prepared: std::io::Result<()> = Ok(());
+                            match prepared.and_then(|()| child_cmd.spawn()) {
                                 Ok(child) => running_jobs.push((j.id, child, cost, j.queue, now, j.walltime)),
                                 Err(error) => {
                                     let result = retain_terminal(&fbq_dir, &rpath, "queue/failed", &format!("status: FAILED\nexit_reason: spawn_failed\nspawn_error: {}\nend_at: {}", error, now));

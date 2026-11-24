@@ -116,6 +116,7 @@ try {
     $script:sequence=0
     Configure
     if ($Profile -eq 'Released095' -and $Name -in @('development_validation','pending_cancel_history','first_run_defaults','windows_rejects_aliases')) { throw 'SKIP: unreleased contract; not required of published v0.9.5' }
+    if ($Profile -eq 'Released095' -and $Name -in @('stat_contract_097','direct_executable_097')) { throw 'SKIP: requires v0.9.7 candidate' }
     $enteredTest=$true
     switch ($Name) {
         'help' {
@@ -160,6 +161,33 @@ Write-Output 'PS1_OK'
             $jobId=Submit-Job @('-N','failure',$job)
             $m=Wait-Record $jobId 'failed'
             Need ($m['exit_code'] -eq '7' -and $m['status'] -eq 'FAILED') 'Failed job exit/status mismatch'
+        }
+        'stat_contract_097' {
+            $r=Invoke-Fb @('stat','--help')
+            Need ($r.exit_code -eq 0 -and $r.stdout -match 'Usage:' -and $r.stdout -match '--json') 'stat help mismatch'
+            $r=Invoke-Fb @('stat','999999.master')
+            Need ($r.exit_code -eq 1 -and $r.stderr -match 'not found') 'Missing ID must return 1'
+            $r=Invoke-Fb @('stat','--invalid-test-option')
+            Need ($r.exit_code -eq 2 -and $r.stderr -match 'unknown option') 'Invalid option must return 2'
+            $job=Fixture 'stat-fail.cmd' "@echo off`necho stat-marker`nexit /b 7`n"
+            $jobId=Submit-Job @('-o','stat out.txt','-e','stat err.txt',$job)
+            $null=Wait-Record $jobId 'failed'
+            $r=Invoke-Fb @('stat',($jobId+'.master'),'--json')
+            Need ($r.exit_code -eq 0) 'Lookup of failed job must return 0'
+            $j=ConvertFrom-Json -InputObject $r.stdout
+            Need ($j.id -ceq $jobId -and $j.state -ceq 'FAILED' -and $j.exit_code -is [ValueType] -and $j.exit_code -eq 7) 'JSON ID/state/numeric exit code mismatch'
+            Need ($j.stdout -eq (Join-Path $script:work 'stat out.txt') -and $j.stderr -eq (Join-Path $script:work 'stat err.txt')) 'JSON output paths mismatch'
+            Need ((Text $j.stdout) -match 'stat-marker') 'JSON stdout path did not point to the job output'
+        }
+        'direct_executable_097' {
+            $batch=Fixture 'no-direct.cmd' "@echo off`nexit /b 0`n"
+            $r=Invoke-Fb @('sub','--exec',$batch)
+            Need ($r.exit_code -eq 2 -and $r.stderr -match 'Batch files require script mode') 'Direct batch submission must be rejected'
+            $exe=Join-Path $env:SystemRoot 'System32\hostname.exe'
+            $jobId=Submit-Job @('-o','direct out.txt','--exec',$exe)
+            $m=Wait-Record $jobId
+            Need ($m['status'] -eq 'DONE' -and $m['exit_code'] -eq '0') 'Direct executable did not finish successfully'
+            Need (-not [string]::IsNullOrWhiteSpace((Text (Join-Path $script:work 'direct out.txt')))) 'Direct executable produced no stdout'
         }
         'capacity_fifo' {
             Configure 1

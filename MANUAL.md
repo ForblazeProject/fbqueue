@@ -184,12 +184,10 @@ fbqueue sub -a "2026-02-24 09:00:00" ./tomorrow_task.sh
 
 ## 7. Windows Implementation and Guidelines
 
-The pre-version-bump implementation prepared for v0.9.6 was rebuilt on Windows AMD64 with
-PowerShell 5.1 and passed all 19 native test cases on 2026-11-13, with no skips,
-errors or unexecuted cases. This includes alias rejection and PBS history/filter
-checks. See `docs/WINDOWS_VERIFICATION.md` for the tested snapshot and limits.
-Linux recovery parity is not a Windows requirement. Published v0.9.5 does not
-include the validation, pending-cancellation or alias-policy changes introduced in v0.9.6.
+The v0.9.7 candidate passed all 21 tests on Windows x64 with Windows PowerShell
+5.1 after a native build from source. See [Windows verification evidence](https://github.com/ForblazeProject/fbqueue/blob/v0.9.7/docs/WINDOWS_VERIFICATION.md)
+for the tested snapshot and limits. This was not a test of the GitHub release ZIP.
+Linux recovery parity is not a Windows requirement.
 
 ### Interpreter Selection
 The appropriate interpreter is automatically selected based on the file extension:
@@ -249,7 +247,23 @@ the cancellation time. No start time or exit code is invented for an unstarted
 job. View cancelled jobs using `stat -H` or a job-ID filter; PBS-style output uses
 `E`, as for running-job cancellation. History retention and archiving still apply.
 
+### Single-job status and JSON (v0.9.7)
+
+`fbqueue stat` still shows the queue. `fbqueue stat --help` prints usage and
+returns 0. A missing job ID returns 1; an invalid ID or option returns 2.
+`fbqueue stat 2.master --json` writes one object with `id`, `state`, `exit_code`,
+`stdout`, and `stderr`. `exit_code` is `null` when unknown. The output paths
+are destinations and may not exist yet. A successful lookup returns 0 even if
+the job failed. On Windows, use `fbqueue.exe stat` with the same arguments.
+
 ### Job Submission Options (`fbqueue sub`)
+
+With `--exec`, FBQueue passes arguments separately to an executable without
+implicitly invoking a shell or reading script directives. For example, use
+`fbqueue sub --exec /bin/echo agent-ok` on Linux or
+`fbqueue.exe sub --exec C:\Windows\System32\hostname.exe` on Windows.
+Keep shell scripts in normal submission mode, or name an interpreter explicitly.
+Windows rejects `.bat` and `.cmd` as direct targets.
 
 FBQueue supports many options common in HPC schedulers for easy migration.
 

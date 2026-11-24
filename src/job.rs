@@ -10,6 +10,7 @@ pub struct Job {
     pub id: String,
     pub name: String,
     pub cmd: String,
+    pub direct: bool,
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub envs: Vec<(String, String)>,
@@ -33,6 +34,7 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
     let mut id = String::new();
     let mut name = String::new();
     let mut cmd = String::new();
+    let mut direct = false;
     let mut args = Vec::new();
     let mut cwd = PathBuf::from(".");
     let mut envs = Vec::new();
@@ -54,6 +56,11 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
         if line.starts_with("id: ") { id = line[4..].trim().to_string(); }
         else if line.starts_with("name: ") { name = line[6..].trim().to_string(); }
         else if line.starts_with("cmd: ") { cmd = line[5..].trim().to_string(); }
+        else if let Some(value) = line.strip_prefix("exec_cmd: ") {
+            cmd = decode_exec_field(value)?;
+            direct = true;
+        }
+        else if let Some(value) = line.strip_prefix("exec_arg: ") { args.push(decode_exec_field(value)?); }
         else if line.starts_with("arg: ") { args.push(line[5..].trim().to_string()); }
         else if line.starts_with("cwd: ") { cwd = PathBuf::from(line[5..].trim()); }
         else if line.starts_with("cost: ") { cost = line[6..].trim().parse().unwrap_or(1); }
@@ -76,7 +83,22 @@ pub fn parse_job_file(path: &Path) -> io::Result<Job> {
         }
     }
     if name.is_empty() { name = cmd.clone(); }
-    Ok(Job { id, name, cmd, args, cwd, envs, cost, stdout, stderr, user, queue, walltime, depend, start_after, start_at, _end_at: end_at, _exit_code: exit_code, status })
+    Ok(Job { id, name, cmd, direct, args, cwd, envs, cost, stdout, stderr, user, queue, walltime, depend, start_after, start_at, _end_at: end_at, _exit_code: exit_code, status })
+}
+
+// Direct argv must round-trip through a line-based record without trimming
+// whitespace or letting an embedded newline create a metadata field.
+fn encode_exec_field(value: &str) -> String {
+    value.bytes().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_exec_field(value: &str) -> io::Result<String> {
+    let invalid = || io::Error::new(io::ErrorKind::InvalidData, "invalid encoded executable field");
+    if !value.is_ascii() || value.len() % 2 != 0 { return Err(invalid()); }
+    let bytes = (0..value.len()).step_by(2)
+        .map(|i| u8::from_str_radix(&value[i..i+2], 16).map_err(|_| invalid()))
+        .collect::<io::Result<Vec<_>>>()?;
+    String::from_utf8(bytes).map_err(|_| invalid())
 }
 
 pub fn parse_cost(value: &str) -> Result<usize, String> {
@@ -88,11 +110,19 @@ pub fn prepare_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option
                   cli_cost: Option<usize>, cli_name: Option<String>, 
                   cli_out: Option<String>, cli_err: Option<String>,
                   cli_queue: Option<String>, cli_walltime: Option<u64>,
-                  cli_depend: Option<String>, cli_start_after: Option<u64>) -> Result<String, String> {
+                  cli_depend: Option<String>, cli_start_after: Option<u64>, direct: bool) -> Result<String, String> {
     let replace = |s: &str| if let Some(v) = val { s.replace("{}", v) } else { s.to_string() };
     
     let raw_cmd = replace(cmd_tmpl);
     let mut cmd = raw_cmd.clone();
+    // Rust's Windows launcher routes batch files through cmd.exe implicitly.
+    #[cfg(windows)]
+    if direct && Path::new(raw_cmd.trim_end_matches([' ', '.'])).extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("bat") || ext.eq_ignore_ascii_case("cmd"))
+    {
+        return Err("Batch files require script mode or an explicit interpreter".into());
+    }
     
     if !cmd.contains('/') && !cmd.contains('\\') {
         let p = cwd.join(&cmd);
@@ -115,7 +145,7 @@ pub fn prepare_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option
     let mut script_depend = Vec::new();
 
     let script_path = if Path::new(&cmd).is_absolute() { PathBuf::from(&cmd) } else { cwd.join(&cmd) };
-    if let Ok(file) = fs::File::open(&script_path) {
+    if let Some(file) = (!direct).then(|| fs::File::open(&script_path).ok()).flatten() {
         let reader = io::BufReader::new(file);
         for line in reader.lines().take(100) {
             if let Ok(l) = line {
@@ -162,7 +192,10 @@ pub fn prepare_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option
     // Validate the effective setting: a CLI cost overrides script directives,
     // including malformed values in directives that are not being used.
     let final_cost = match cli_cost { Some(cost) => cost, None => script_cost? };
-    let final_name = cli_name.unwrap_or(if script_name.is_empty() { raw_cmd.clone() } else { script_name });
+    let final_name = cli_name.unwrap_or_else(|| if direct {
+        Path::new(&raw_cmd).file_name().and_then(|name| name.to_str()).unwrap_or("exec")
+            .replace(['\r', '\n'], "_")
+    } else if script_name.is_empty() { raw_cmd.clone() } else { script_name });
     let final_out = cli_out.or(script_out);
     let final_err = cli_err.or(script_err);
     let final_queue = cli_queue.or(script_queue).unwrap_or(def_q);
@@ -178,14 +211,23 @@ pub fn prepare_job(cmd_tmpl: &str, args_tmpl: &[String], cwd: &Path, val: Option
     let current_user = env::var("USER").or_else(|_| env::var("USERNAME")).unwrap_or_else(|_| "unknown".to_string());
     let hostname = process::Command::new("hostname").output().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_else(|_| "localhost".to_string());
 
-    let mut content = format!("name: {}\ncmd: {}\ncost: {}\nuser: {}\nqueue: {}\n", final_name, cmd, final_cost, current_user, final_queue);
+    let mut content = format!("name: {}\n", final_name);
+    if direct {
+        content.push_str(&format!("exec_cmd: {}\n", encode_exec_field(&cmd)));
+    } else {
+        content.push_str(&format!("cmd: {}\n", cmd));
+    }
+    content.push_str(&format!("cost: {}\nuser: {}\nqueue: {}\n", final_cost, current_user, final_queue));
     if let Some(o) = final_out { content.push_str(&format!("stdout: {}\n", o)); }
     if let Some(e) = final_err { content.push_str(&format!("stderr: {}\n", e)); }
     if let Some(w) = final_walltime { content.push_str(&format!("walltime: {}\n", w)); }
     if !final_depend.is_empty() { content.push_str(&format!("depend: {}\n", final_depend.join(","))); }
     if let Some(s) = cli_start_after { content.push_str(&format!("start_after: {}\n", s)); }
-    
-    for arg in job_args { content.push_str(&format!("arg: {}\n", arg)); }
+
+    for arg in job_args {
+        if direct { content.push_str(&format!("exec_arg: {}\n", encode_exec_field(&arg))); }
+        else { content.push_str(&format!("arg: {}\n", arg)); }
+    }
     content.push_str(&format!("cwd: {}\n", cwd.display()));
 
     // PBS compatibility environment variables (Submission time)

@@ -43,7 +43,13 @@ fn main() {
 
     match command {
         "sub" => handlers::handle_sub(&args),
-        "stat" => stat::handle_stat(&args, default_style),
+        "stat" => {
+            let first_arg = if program_name == "qstat" { 1 } else { 2 };
+            if let Err((code, message)) = stat::handle_stat(&args[first_arg..], default_style) {
+                eprintln!("stat: {message}");
+                std::process::exit(code);
+            }
+        }
         "del" => handlers::handle_del(&args),
         "daemon" => handlers::handle_daemon(&args),
         "help" | "--help" | "-h" => print_help(),
@@ -68,7 +74,8 @@ fn print_help() {
     let frontend = if cfg!(windows) { "fbqueue.exe" } else { "fbqueue" };
     let suffix = |name: &str| if cfg!(windows) { String::new() } else { format!(" (alias: {})", name) };
     println!("  {} sub [options] <command> [args...]{}", frontend, suffix("qsub"));
-    println!("  {} stat [job_id] [--style pbs|default] [-H [N]]{}", frontend, suffix("qstat"));
+    println!("  {} stat [job_id] [--style pbs|default] [-H [N]] [-u USER]{}", frontend, suffix("qstat"));
+    println!("  {} stat <job_id> --json", frontend);
     println!("  {} del <job_id>{}", frontend, suffix("qdel"));
     println!("  {} daemon <start|stop|status>", frontend);
     println!("  {} help", frontend);
@@ -86,6 +93,7 @@ fn print_help() {
     println!("\nSubmission runs asynchronously: acceptance does not mean completion.");
     println!("Normal use does not require manually starting the daemon.");
     println!("\nOptions for sub:");
+    println!("  --exec          Run an executable directly with separate arguments");
     println!("  -q QUEUE        Queue name");
     println!("  -c COST         Resource cost: positive integer (default: 1)");
     println!("  -N NAME         Job name");

@@ -6,7 +6,9 @@ ZIP を **展開してから**使ってください。管理者として実行�
 
 この版はハーネスv3です。`fbqueue.exe` の明示コマンドへ統一した開発版は、2026-11-13にWindows AMD64 / PowerShell 5.1で同梱ソースから再ビルドされ、履歴・IDフィルタと別名拒否を含む19/19ケースが成功しました（スキップ・エラー・未実行なし）。詳細はリポジトリの `docs/WINDOWS_VERIFICATION.md` に記録しています。**別名廃止前の.exeではなく、検証対象のソースから再ビルドしてください。**
 
-### v0.9.6のソースを Windows でビルドして調べる場合（推奨）
+今回の検証対象は **v0.9.7候補** です。既存の19ケースに加え、`stat` の終了コードとJSON、および Windows での `--exec`（ネイティブEXEの直接実行とバッチファイルの拒否）を確認する計21ケースを実行します。上記の19/19は旧スナップショットの結果です。今回の候補の21/21の結果は [Windows実機検証記録](../../docs/WINDOWS_VERIFICATION.md) を参照してください。
+
+### v0.9.7候補のソースを Windows でビルドして調べる場合（推奨）
 
 1. Windows の Rust / Cargo と MSVC ビルド環境を準備済みであれば、**`Build-And-Test.cmd` をダブルクリック**。
 2. 同梱の `source/` に対して `cargo build --release --locked` を実行し、その実行ファイルでテストします。**x64/MSVC (`x86_64-pc-windows-msvc`) と実行ごとの専用 target-dir を明示**するため、別ターゲットや以前の実行ファイルを誤って使いません。ビルド先は結果の `build_output` に記録します。
@@ -14,7 +16,7 @@ ZIP を **展開してから**使ってください。管理者として実行�
 
 **このキットには Windows 実行ファイルを同梱していません。** 同梱ソースからのビルド、または手元の Windows 版 `fbqueue.exe` が必要です。
 
-### 既にv0.9.6の `fbqueue.exe` がある場合
+### 同じ v0.9.7 候補の `fbqueue.exe` がある場合
 
 **`Run-Tests.cmd` をダブルクリック**し、実行ファイルのフルパスを入力します。同じディレクトリに `fbqueue.exe` を置いておくこともできます。
 
@@ -30,7 +32,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Run-Tests.ps1 -Binary 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Run-Tests.ps1 -Binary 'C:\path\fbqueue.exe' -Profile Released095
 ```
 
-この場合、v0.9.6で導入した入力検証・待機キャンセル履歴・初回既定値・Windows別名拒否のケースは SKIP とします。**v0.9.5の結果ではv0.9.6の差分は検証できません。** v0.9.6には既定の `Development` プロファイルを使います。過去の実機検証スナップショットは版数更新前のためv0.9.5を表示していましたが、現在のCargo版数はv0.9.6です。版数から自動判定せず、選択したプロファイルとバイナリの SHA-256 を結果に残します。
+この場合、v0.9.6で導入した4ケースとv0.9.7候補の追加2ケースは SKIP とします。**旧版の結果ではv0.9.7候補を検証できません。** 今回は既定の `Development` プロファイルを使ってください。選択したプロファイルとバイナリの SHA-256 を結果に残します。
 
 ## 結果を返す方法
 
@@ -53,7 +55,7 @@ ZIP を作れなかった場合は、同じディレクトリの `results.json`�
 - Windows 10/11、Windows PowerShell 5.1。Python / Pester / PowerShell 7 は不要。
 - C# の `Add-Type` と Windows Job Object を利用できること。組織ポリシーや親のプロセス制限で利用できなければ、安全性を落として続行せず ERROR にします。
 - `cmd` / `powershell` / `tasklist` / `taskkill` / `hostname` を利用できること。`tar.exe` はアーカイブ検証だけの任意条件です。
-- 19 ケース：ヘルプ、cmd/bat、PowerShell、環境変数と nodefile、空白・日本語パス、失敗終了コード、容量待ち、依存、遅延、range/list、明示コマンドによるPBS形式の履歴・IDフィルタ、Windows別名拒否、待機・実行中キャンセル、walltime、Windows の daemon stop、開発版入力検証、初回設定、アーカイブ、テスト用子プロセスの封じ込め。
+- 対象は計21ケース。従来の19ケース（スクリプト、履歴、キャンセル、プロセス封じ込めなど）に `stat_contract_097` と `direct_executable_097` を追加しています。
 - Linux 専用の pidfd / flock / UNKNOWN 復旧などは要求しません。詳しくは **`WINDOWS_SUPPORT.md`** を参照。
 - 通常の所要時間は環境依存。各ケースは最大120秒、全体は15分を目安に打ち切り判定します。セキュリティスキャンなどが遅い環境ではタイムアウトが出る場合があります。
 
